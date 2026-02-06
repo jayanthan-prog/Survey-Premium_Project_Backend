@@ -1,0 +1,35 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jayanthan-prog/Survey-Premium_Project_Backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jayanthan-prog/Survey-Premium_Project_Backend/issues"
+  },
+  "homepage": "https://github.com/jayanthan-prog/Survey-Premium_Project_Backend#readme",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "joi": "^18.0.2",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "mysql2": "^3.16.3",
+    "node-cron": "^4.2.1",
+    "sequelize": "^6.37.7",
+    "uuid": "^13.0.0",
+    "zod": "^4.3.6"
+  }
+}
