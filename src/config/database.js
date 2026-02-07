@@ -1,12 +1,17 @@
-require('dotenv').config();
+'use strict';
+const { Sequelize } = require('sequelize');
+require('dotenv').config(); // load .env
 
-module.exports = {
-  development: {
-    username: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    host: process.env.DB_HOST,
-    dialect: 'mysql',
-    logging: false,
-  },
-};
+// Create Sequelize instance
+const sequelize = new Sequelize(
+  process.env.DB_NAME,      // database name
+  process.env.DB_USER,      // database user
+  process.env.DB_PASSWORD,  // database password
+  {
+    host: process.env.DB_HOST || 'localhost',
+    dialect: 'mysql',       // or 'postgres', etc.
+    logging: false,         // optional
+  }
+);
+
+module.exports = sequelize;  // ✅ export the instance

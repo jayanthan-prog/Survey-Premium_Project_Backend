@@ -1,27 +1,19 @@
-module.exports = (sequelize, DataTypes) => {
-  const User = sequelize.define(
-    'User',
-    {
-      user_id: {
-        type: DataTypes.UUID,
-        primaryKey: true,
-        defaultValue: DataTypes.UUIDV4,
-      },
-      name: DataTypes.TEXT,
-      email: DataTypes.STRING,
-      phone: DataTypes.STRING,
-      is_active: DataTypes.BOOLEAN,
-      attributes: DataTypes.JSON,
-    },
-    {
-      tableName: 'users',
-      timestamps: false,
-    }
-  );
+'use strict';
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/database'); // must be Sequelize instance
 
-  User.associate = (models) => {
-    User.hasMany(models.Survey, { foreignKey: 'created_by' });
-  };
+const User = sequelize.define('User', {
+  user_id: {
+    type: DataTypes.CHAR(36),
+    primaryKey: true,
+    defaultValue: DataTypes.UUIDV4,
+  },
+  name: DataTypes.STRING,
+  email: { type: DataTypes.STRING, unique: true, validate: { isEmail: true } },
+  created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+}, {
+  tableName: 'users',
+  timestamps: false,
+});
 
-  return User;
-};
+module.exports = User;
