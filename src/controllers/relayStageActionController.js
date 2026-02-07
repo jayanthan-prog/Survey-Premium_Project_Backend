@@ -1,68 +1,61 @@
-const RelayStageAction = require('../models/relay_stage_action'); // must match the file name exactly
+const RelayStageAction = require('../models/relay_stage_action');
 
-// GET all relay stage actions
+// Get all relay stage actions
 exports.getAllRelayStageActions = async (req, res) => {
   try {
     const actions = await RelayStageAction.findAll();
     res.json(actions);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch relay stage actions' });
   }
 };
 
-// GET relay stage action by ID
+// Get relay stage action by ID
 exports.getRelayStageActionById = async (req, res) => {
   try {
-    const { id } = req.params;
-    const action = await RelayStageAction.findByPk(id);
-    if (!action) return res.status(404).json({ message: 'Action not found' });
+    const action = await RelayStageAction.findByPk(req.params.id);
+    if (!action) return res.status(404).json({ error: 'Relay stage action not found' });
     res.json(action);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch relay stage action' });
   }
 };
 
-// CREATE new relay stage action
+// Create new relay stage action
 exports.createRelayStageAction = async (req, res) => {
   try {
-    const { relay_stage_id, action_type, action_payload } = req.body;
-    const newAction = await RelayStageAction.create({
-      relay_stage_id,
-      action_type,
-      action_payload,
-    });
+    const newAction = await RelayStageAction.create(req.body);
     res.status(201).json(newAction);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to create relay stage action' });
   }
 };
 
-// UPDATE relay stage action
+// Update relay stage action
 exports.updateRelayStageAction = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { relay_stage_id, action_type, action_payload } = req.body;
-
-    const action = await RelayStageAction.findByPk(id);
-    if (!action) return res.status(404).json({ message: 'Action not found' });
-
-    await action.update({ relay_stage_id, action_type, action_payload });
+    const action = await RelayStageAction.findByPk(req.params.id);
+    if (!action) return res.status(404).json({ error: 'Relay stage action not found' });
+    await action.update(req.body);
     res.json(action);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to update relay stage action' });
   }
 };
 
-// DELETE relay stage action
+// Delete relay stage action
 exports.deleteRelayStageAction = async (req, res) => {
   try {
-    const { id } = req.params;
-    const action = await RelayStageAction.findByPk(id);
-    if (!action) return res.status(404).json({ message: 'Action not found' });
-
+    const action = await RelayStageAction.findByPk(req.params.id);
+    if (!action) return res.status(404).json({ error: 'Relay stage action not found' });
     await action.destroy();
-    res.json({ message: 'Action deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ message: 'Relay stage action deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to delete relay stage action' });
   }
 };

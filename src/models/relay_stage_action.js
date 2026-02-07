@@ -7,34 +7,24 @@ const RelayStageAction = sequelize.define('RelayStageAction', {
     type: DataTypes.CHAR(36),
     primaryKey: true,
     allowNull: false,
-    defaultValue: DataTypes.UUIDV4, // generates UUID automatically
+    defaultValue: DataTypes.UUIDV4,
   },
-
   relay_stage_id: {
     type: DataTypes.CHAR(36),
     allowNull: false,
   },
-
   name: {
     type: DataTypes.STRING(255),
     allowNull: false,
   },
-
   action_type: {
-    type: DataTypes.STRING(50), // e.g., NOTIFY, APPROVE, etc.
+    type: DataTypes.STRING(50),
     allowNull: false,
   },
-
-  config: {
-    type: DataTypes.JSON,
-    defaultValue: {},
-  },
-
   sort_order: {
     type: DataTypes.INTEGER,
     defaultValue: 0,
   },
-
   created_at: {
     type: DataTypes.DATE,
     allowNull: false,
@@ -46,12 +36,8 @@ const RelayStageAction = sequelize.define('RelayStageAction', {
 });
 
 // Associations
-RelayStageAction.associate = (models) => {
-  RelayStageAction.belongsTo(models.RelayStage, {
-    foreignKey: 'relay_stage_id',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
-  });
+RelayStageAction.associate = models => {
+  RelayStageAction.belongsTo(models.RelayStage, { foreignKey: 'relay_stage_id' });
 };
 
 module.exports = RelayStageAction;

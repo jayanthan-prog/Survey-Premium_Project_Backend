@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const groupController = require('../controllers/groupcontroller'); // must match file
+const groupController = require('../controllers/groupcontroller');
 
-// Routes (no /groups prefix here, mount in server.js)
 router.get('/', groupController.getAllGroups);
 router.get('/:id', groupController.getGroupById);
 router.post('/', groupController.createGroup);

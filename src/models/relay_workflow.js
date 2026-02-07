@@ -32,4 +32,4 @@ RelayWorkflow.associate = models => {
   RelayWorkflow.hasMany(models.RelayStageAction, { foreignKey: 'relay_workflow_id' });
 };
 
-module.exports = RelayWorkflow;
+module.exports = RelayWorkflow; 
