@@ -7,6 +7,8 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerDocument = require('../swagger/swagger.json');
 
 app.use(express.json());
+// accept URL-encoded form bodies for the admin UI login form
+app.use(express.urlencoded({ extended: false }));
 
 // Middleware
 const { requestLogger, notFound, errorHandler } = require('../middleware');
@@ -42,6 +44,8 @@ const rolePermissionRoutes = require('../routes/rolePermissionRoutes');
 const optionCapacityRoutes = require('../routes/optionCapacityRoutes');
 const optionQuotaBucketRoutes = require('../routes/optionQuotaBucketRoutes');
 const surveySessionRoutes = require('../routes/surveySessionRoutes');
+const adminRoutes = require('../routes/adminRoutes');
+const adminUiRoutes = require('../routes/adminUiRoutes');
 
 // Swagger UI route (API docs)
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
@@ -79,6 +83,12 @@ app.use('/api/role-permissions', rolePermissionRoutes);
 app.use('/api/option-capacities', optionCapacityRoutes);
 app.use('/api/option-quota-buckets', optionQuotaBucketRoutes);
 app.use('/api/survey-sessions', surveySessionRoutes);
+
+// Admin dashboard routes (protected by ADMIN_API_KEY)
+app.use('/api/admin', adminRoutes);
+
+// Admin UI (login page, dashboard). Mount at /admin
+app.use('/admin', adminUiRoutes);
 
 
 app.get('/', (req, res) => res.send('Survey Premium Backend API running (modular app)!'));

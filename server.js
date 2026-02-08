@@ -3,10 +3,11 @@ const app = require('./src/api');
 const sequelize = require('./src/config/database');
 
 // Use BASE_URL from .env (fallback to http://localhost:3000)
+// Allow overriding the host/port via HOST and PORT env vars. Default HOST = 0.0.0.0
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const url = new URL(BASE_URL);
-const HOST = url.hostname;
-const PORT = Number(url.port) || 3000;
+const PORT = Number(process.env.PORT || url.port) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Small cyber-style banner
 function banner() {
@@ -50,7 +51,8 @@ async function init() {
 
   // start the HTTP server after DB is OK
   app.listen(PORT, HOST, () => {
-    console.log(`\nServer running at ${BASE_URL}`);
+    const effectiveHost = HOST === '0.0.0.0' ? '0.0.0.0 (all interfaces)' : HOST;
+    console.log(`\nServer running on http://${effectiveHost}:${PORT}`);
     console.log('Ready to receive requests.');
   });
 }
