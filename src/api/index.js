@@ -2,7 +2,15 @@
 const express = require('express');
 const app = express();
 
+// Swagger UI
+const swaggerUi = require('swagger-ui-express');
+const swaggerDocument = require('../swagger/swagger.json');
+
 app.use(express.json());
+
+// Middleware
+const { requestLogger, notFound, errorHandler } = require('../middleware');
+app.use(requestLogger);
 
 // Route modules
 const userRoutes = require('../routes/userRoutes');
@@ -69,5 +77,13 @@ app.use('/api/option-quota-buckets', optionQuotaBucketRoutes);
 app.use('/api/survey-sessions', surveySessionRoutes);
 
 app.get('/', (req, res) => res.send('Survey Premium Backend API running (modular app)!'));
+
+// Swagger UI route (API docs)
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.get('/api/docs.json', (req, res) => res.json(swaggerDocument));
+
+// 404 / error handlers (should be last)
+app.use(notFound);
+app.use(errorHandler);
 
 module.exports = app;
