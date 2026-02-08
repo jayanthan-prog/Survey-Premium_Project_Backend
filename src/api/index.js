@@ -9,7 +9,7 @@ const swaggerDocument = require('../swagger/swagger.json');
 app.use(express.json());
 
 // Middleware
-const { requestLogger, notFound, errorHandler } = require('../middleware');
+const { requestLogger, requireAuth, notFound, errorHandler } = require('../middleware');
 app.use(requestLogger);
 
 // Route modules
@@ -42,8 +42,19 @@ const rolePermissionRoutes = require('../routes/rolePermissionRoutes');
 const optionCapacityRoutes = require('../routes/optionCapacityRoutes');
 const optionQuotaBucketRoutes = require('../routes/optionQuotaBucketRoutes');
 const surveySessionRoutes = require('../routes/surveySessionRoutes');
+const authRoutes = require('../routes/authRoutes');
 
-// Mount routes under /api
+// Mount public-auth routes first (login/logout)
+app.use('/api', authRoutes);
+
+// Swagger UI route (API docs) - keep public
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.get('/api/docs.json', (req, res) => res.json(swaggerDocument));
+
+// Apply auth middleware to all later /api routes
+app.use('/api', requireAuth);
+
+// Mount routes under /api (protected)
 app.use('/api/users', userRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/relay-stage-actions', relayStageActionRoutes);
@@ -76,11 +87,8 @@ app.use('/api/option-capacities', optionCapacityRoutes);
 app.use('/api/option-quota-buckets', optionQuotaBucketRoutes);
 app.use('/api/survey-sessions', surveySessionRoutes);
 
-app.get('/', (req, res) => res.send('Survey Premium Backend API running (modular app)!'));
 
-// Swagger UI route (API docs)
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-app.get('/api/docs.json', (req, res) => res.json(swaggerDocument));
+app.get('/', (req, res) => res.send('Survey Premium Backend API running (modular app)!'));
 
 // 404 / error handlers (should be last)
 app.use(notFound);
