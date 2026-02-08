@@ -1,0 +1,83 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Survey Premium Backend API",
+    "version": "1.0.0",
+    "description": "Minimal OpenAPI spec for the Survey Premium Backend. Add more paths as needed."
+  },
+  "servers": [
+    { "url": "http://localhost:3000", "description": "Local server" }
+  ],
+  "paths": {
+    "/api/users": {
+      "get": {
+        "summary": "List users",
+        "tags": ["Users"],
+        "responses": {
+          "200": {
+            "description": "A list of users",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "user_id": { "type": "string", "format": "uuid" },
+                      "name": { "type": "string" },
+                      "email": { "type": "string", "format": "email" },
+                      "created_at": { "type": "string", "format": "date-time", "nullable": true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/groups": { "get": { "summary": "List groups", "tags": ["Groups"], "responses": { "200": { "description": "A list of groups" } } } },
+    "/api/relay-stage-actions": { "get": { "summary": "List relay stage actions", "tags": ["RelayStageActions"], "responses": { "200": { "description": "A list of relay stage actions" } } } },
+    "/api/relay-workflows": { "get": { "summary": "List relay workflows", "tags": ["RelayWorkflows"], "responses": { "200": { "description": "A list of relay workflows" } } } },
+    "/api/action-plan-items": { "get": { "summary": "List action plan items", "tags": ["ActionPlanItems"], "responses": { "200": { "description": "A list of action plan items" } } } },
+    "/api/action-plans": { "get": { "summary": "List action plans", "tags": ["ActionPlans"], "responses": { "200": { "description": "A list of action plans" } } } },
+    "/api/audit-events": { "get": { "summary": "List audit events", "tags": ["AuditEvents"], "responses": { "200": { "description": "A list of audit events" } } } },
+    "/api/audit-logs": { "get": { "summary": "List audit logs", "tags": ["AuditLogs"], "responses": { "200": { "description": "A list of audit logs" } } } },
+    "/api/auth-tokens": { "get": { "summary": "List auth tokens", "tags": ["AuthTokens"], "responses": { "200": { "description": "A list of auth tokens" } } } },
+    "/api/calendar-slots": { "get": { "summary": "List calendar slots", "tags": ["CalendarSlots"], "responses": { "200": { "description": "A list of calendar slots" } } } },
+    "/api/enums": { "get": { "summary": "List enums", "tags": ["Enums"], "responses": { "200": { "description": "A list of enums" } } } },
+    "/api/group-members": { "get": { "summary": "List group members", "tags": ["GroupMembers"], "responses": { "200": { "description": "A list of group members" } } } },
+    "/api/relay-instances": { "get": { "summary": "List relay instances", "tags": ["RelayInstances"], "responses": { "200": { "description": "A list of relay instances" } } } },
+    "/api/relay-stages": { "get": { "summary": "List relay stages", "tags": ["RelayStages"], "responses": { "200": { "description": "A list of relay stages" } } } },
+    "/api/slot-bookings": { "get": { "summary": "List slot bookings", "tags": ["SlotBookings"], "responses": { "200": { "description": "A list of slot bookings" } } } },
+    "/api/survey-answer-selections": { "get": { "summary": "List survey answer selections", "tags": ["SurveyAnswerSelections"], "responses": { "200": { "description": "A list of survey answer selections" } } } },
+    "/api/survey_answers": { "get": { "summary": "List survey answers", "tags": ["SurveyAnswers"], "responses": { "200": { "description": "A list of survey answers" } } } },
+    "/api/survey_options": { "get": { "summary": "List survey options", "tags": ["SurveyOptions"], "responses": { "200": { "description": "A list of survey options" } } } },
+    "/api/survey_participants": { "get": { "summary": "List survey participants", "tags": ["SurveyParticipants"], "responses": { "200": { "description": "A list of survey participants" } } } },
+    "/api/survey_question_options": { "get": { "summary": "List survey question options", "tags": ["SurveyQuestionOptions"], "responses": { "200": { "description": "A list of survey question options" } } } },
+    "/api/survey-questions": { "get": { "summary": "List survey questions", "tags": ["SurveyQuestions"], "responses": { "200": { "description": "A list of survey questions" } } } },
+    "/api/survey-releases": { "get": { "summary": "List survey releases", "tags": ["SurveyReleases"], "responses": { "200": { "description": "A list of survey releases" } } } },
+    "/api/surveys": { "get": { "summary": "List surveys", "tags": ["Surveys"], "responses": { "200": { "description": "A list of surveys" } } } },
+    "/api/approvals": { "get": { "summary": "Approvals root", "tags": ["Approvals"], "responses": { "200": { "description": "Approvals root info" } } } },
+    "/api/user-roles": { "get": { "summary": "List user roles", "tags": ["UserRoles"], "responses": { "200": { "description": "A list of user roles" } } } },
+    "/api/roles": { "get": { "summary": "List roles", "tags": ["Roles"], "responses": { "200": { "description": "A list of roles" } } } },
+    "/api/permissions": { "get": { "summary": "List permissions", "tags": ["Permissions"], "responses": { "200": { "description": "A list of permissions" } } } },
+    "/api/role-permissions": { "get": { "summary": "List role permissions", "tags": ["RolePermissions"], "responses": { "200": { "description": "A list of role permissions" } } } },
+    "/api/option-capacities": { "get": { "summary": "List option capacities", "tags": ["OptionCapacities"], "responses": { "200": { "description": "A list of option capacities" } } } },
+    "/api/option-quota-buckets": { "get": { "summary": "List option quota buckets", "tags": ["OptionQuotaBuckets"], "responses": { "200": { "description": "A list of option quota buckets" } } } },
+    "/api/survey-sessions": { "get": { "summary": "List survey sessions", "tags": ["SurveySessions"], "responses": { "200": { "description": "A list of survey sessions" } } } }
+  },
+  "components": {
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "created_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      }
+    }
+  }
+}
