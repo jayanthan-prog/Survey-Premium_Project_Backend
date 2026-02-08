@@ -9,24 +9,7 @@
     { "url": "http://localhost:3000", "description": "Local server" }
   ],
   "paths": {
-    "/api/login": {
-      "post": {
-        "summary": "Login and receive an auth token",
-        "tags": ["Auth"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "type": "object", "properties": { "email": { "type": "string", "format": "email" } }, "required": ["email"] }
-            }
-          }
-        },
-        "responses": {
-          "200": { "description": "Auth token", "content": { "application/json": { "schema": { "type": "object", "properties": { "token": { "type": "string" }, "token_type": { "type": "string" }, "expires_at": { "type": "string", "format": "date-time" }, "user_id": { "type": "string" } } } } } },
-          "401": { "description": "Invalid credentials" }
-        }
-      }
-    },
+    
     "/api/users": {
       "get": {
         "summary": "List users",

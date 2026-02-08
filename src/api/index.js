@@ -9,7 +9,7 @@ const swaggerDocument = require('../swagger/swagger.json');
 app.use(express.json());
 
 // Middleware
-const { requestLogger, requireAuth, notFound, errorHandler } = require('../middleware');
+const { requestLogger, notFound, errorHandler } = require('../middleware');
 app.use(requestLogger);
 
 // Route modules
@@ -42,19 +42,12 @@ const rolePermissionRoutes = require('../routes/rolePermissionRoutes');
 const optionCapacityRoutes = require('../routes/optionCapacityRoutes');
 const optionQuotaBucketRoutes = require('../routes/optionQuotaBucketRoutes');
 const surveySessionRoutes = require('../routes/surveySessionRoutes');
-const authRoutes = require('../routes/authRoutes');
 
-// Mount public-auth routes first (login/logout)
-app.use('/api', authRoutes);
-
-// Swagger UI route (API docs) - keep public
+// Swagger UI route (API docs)
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.get('/api/docs.json', (req, res) => res.json(swaggerDocument));
 
-// Apply auth middleware to all later /api routes
-app.use('/api', requireAuth);
-
-// Mount routes under /api (protected)
+// Mount routes under /api
 app.use('/api/users', userRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/relay-stage-actions', relayStageActionRoutes);
