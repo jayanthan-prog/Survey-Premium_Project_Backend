@@ -1,5 +1,5 @@
 'use strict';
-const AuditLog = require('../models/audit_log');
+const { AuditLog } = require('../models');
 
 exports.getAllAuditLogs = async (req, res) => {
   try {

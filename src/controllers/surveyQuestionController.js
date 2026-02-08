@@ -1,4 +1,4 @@
-const SurveyQuestion = require('../models/survey_question');
+const { SurveyQuestion } = require('../models');
 
 // GET all questions
 exports.getAllSurveyQuestions = async (req, res) => {

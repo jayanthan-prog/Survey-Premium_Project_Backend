@@ -29,7 +29,10 @@ const RelayWorkflow = sequelize.define('RelayWorkflow', {
 // Associations (if you have related tables like relay_stages)
 RelayWorkflow.associate = models => {
   RelayWorkflow.hasMany(models.RelayStage, { foreignKey: 'relay_workflow_id' });
-  RelayWorkflow.hasMany(models.RelayStageAction, { foreignKey: 'relay_workflow_id' });
+  // RelayStageAction belongs to RelayStage (via relay_stage_id). Do not add a relay_workflow_id
+  // association here because the `relay_stage_actions` table does not have a `relay_workflow_id` column
+  // (the relation is through RelayStage -> RelayWorkflow). Adding the association wrongly injects
+  // `relay_workflow_id` into the RelayStageAction model and causes SQL errors.
 };
 
 module.exports = RelayWorkflow; 

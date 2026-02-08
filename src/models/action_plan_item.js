@@ -39,9 +39,11 @@ const ActionPlanItem = sequelize.define('ActionPlanItem', {
   timestamps: false,
 });
 
-// Associations
-ActionPlanItem.associate = models => {
-  ActionPlanItem.belongsTo(models.ActionPlan, { foreignKey: 'plan_id' });
+// Associations (guarded)
+ActionPlanItem.associate = (models) => {
+  if (models && models.ActionPlan) {
+    ActionPlanItem.belongsTo(models.ActionPlan, { foreignKey: 'plan_id' });
+  }
 };
 
 module.exports = ActionPlanItem;

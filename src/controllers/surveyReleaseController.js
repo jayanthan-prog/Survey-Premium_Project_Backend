@@ -1,4 +1,4 @@
-const SurveyRelease = require('../models/survey_release');
+const { SurveyRelease } = require('../models');
 
 // GET all releases
 exports.getAllSurveyReleases = async (req, res) => {
@@ -69,3 +69,5 @@ exports.deleteSurveyRelease = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete survey release' });
   }
 };
+console.log('SurveyRelease type:', typeof SurveyRelease);
+console.log('SurveyRelease keys:', Object.getOwnPropertyNames(SurveyRelease));

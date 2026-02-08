@@ -41,11 +41,19 @@ const ActionPlan = sequelize.define('ActionPlan', {
   timestamps: false,
 });
 
-// Associations
-ActionPlan.associate = models => {
-  ActionPlan.belongsTo(models.Survey, { foreignKey: 'survey_id' });
-  ActionPlan.belongsTo(models.SurveyParticipant, { foreignKey: 'participant_id' });
-  ActionPlan.hasMany(models.ActionPlanItem, { foreignKey: 'plan_id' });
+// Associations (guarded)
+ActionPlan.associate = (models) => {
+  if (models && models.Survey) {
+    ActionPlan.belongsTo(models.Survey, { foreignKey: 'survey_id' });
+  }
+
+  if (models && models.SurveyParticipant) {
+    ActionPlan.belongsTo(models.SurveyParticipant, { foreignKey: 'participant_id' });
+  }
+
+  if (models && models.ActionPlanItem) {
+    ActionPlan.hasMany(models.ActionPlanItem, { foreignKey: 'plan_id' });
+  }
 };
 
 module.exports = ActionPlan;
