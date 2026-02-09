@@ -224,202 +224,220 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Admin Dashboard</title>
+<meta charset="utf-8">
+<title>API CONSOLE</title>
 
-  <style>
-    body{
-      font-family: Segoe UI, Arial, sans-serif;
-      background:#f4f6f8;
-      margin:0;
-      padding:0;
-    }
+<style>
+body{
+  margin:0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background:#e5e9f0;
+  color:#0f172a;
+}
 
-    .container{
-      max-width: 1000px;
-      margin: 30px auto;
-      padding: 20px;
-    }
+/* ========== TOP BAR ========== */
+.topbar{
+  background:#0b1220;
+  color:white;
+  padding:16px 32px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  box-shadow:0 4px 12px rgba(0,0,0,0.3);
+}
 
-    .header{
-      display:flex;
-      justify-content: space-between;
-      align-items:center;
-      background:#1e293b;
-      color:white;
-      padding:15px 20px;
-      border-radius:10px;
-    }
+.title{
+  font-weight:700;
+  letter-spacing:0.4px;
+  font-size:18px;
+}
 
-    .logout a{
-      color:white;
-      text-decoration:none;
-      background:#ef4444;
-      padding:8px 12px;
-      border-radius:6px;
-    }
+.logout a{
+  color:white;
+  text-decoration:none;
+  background:#ef4444;
+  padding:8px 14px;
+  border-radius:8px;
+  font-size:13px;
+  font-weight:600;
+  transition: all .2s ease;
+}
 
-    .stats{
-      display:grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap:15px;
-      margin-top:20px;
-    }
+.logout a:hover{
+  background:#dc2626;
+}
 
-    .card{
-      background:white;
-      padding:15px;
-      border-radius:10px;
-      box-shadow:0 2px 5px rgba(0,0,0,0.1);
-    }
+/* ========== MAIN CONTENT ========== */
+.main{
+  max-width: 1180px;
+  margin: 28px auto;
+  padding: 0 22px;
+}
 
-    .card h3{
-      margin:0;
-      color:#1e293b;
-    }
+.main h2{
+  margin:0 0 14px;
+  font-size:18px;
+  color:#0f172a;
+}
 
-    .card p{
-      font-size:22px;
-      font-weight:bold;
-      margin:8px 0 0;
-      color:#2563eb;
-    }
+/* ========== STATS GRID ========== */
+.stats{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap:20px;
+  margin-bottom:32px;
+}
 
-    .section{
-      margin-top:25px;
-    }
+.card{
+  background:white;
+  padding:18px 20px;
+  border-radius:16px;
+  box-shadow:0 6px 16px rgba(0,0,0,0.06);
+  border:1px solid #e5e7eb;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
 
-    .links, .api-list{
-      background:white;
-      padding:15px;
-      border-radius:10px;
-      box-shadow:0 2px 5px rgba(0,0,0,0.1);
-    }
+.card:hover{
+  transform: translateY(-2px);
+  box-shadow:0 10px 20px rgba(0,0,0,0.08);
+}
 
-    ul{
-      list-style:none;
-      padding:0;
-    }
+.card h3{
+  margin:0;
+  font-size:12px;
+  letter-spacing:.3px;
+  color:#64748b;
+  font-weight:700;
+  text-transform:uppercase;
+}
 
-    li{
-      margin:6px 0;
-    }
+.card p{
+  margin:10px 0 0;
+  font-size:26px;
+  font-weight:800;
+  color:#2563eb;
+}
 
-    a{
-      text-decoration:none;
-      color:#2563eb;
-      font-weight:600;
-    }
+/* ========== API STATUS PANEL ========== */
+.api-panel{
+  background:white;
+  padding:22px;
+  border-radius:16px;
+  box-shadow:0 6px 16px rgba(0,0,0,0.06);
+  border:1px solid #e5e7eb;
+}
 
-    .api-grid{
-      display:grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap:12px;
-    }
+/* Better grid */
+.api-grid{
+  display:grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap:16px;
+  margin-top:14px;
+}
 
-    /* ===== NEW: STATUS STYLES INSIDE CARD ===== */
-    .api-card{
-      background:#f8fafc;
-      padding:12px;
-      border-radius:10px;
-      border:1px solid #e2e8f0;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-    }
+/* API Card */
+.api-card{
+  background:#f8fafc;
+  padding:12px 14px;
+  border-radius:14px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border:1px solid #e2e8f0;
+  transition:.2s ease;
+}
 
-    .status{
-      padding:5px 10px;
-      border-radius:6px;
-      font-size:12px;
-      font-weight:bold;
-    }
+.api-card:hover{
+  background:#f1f5f9;
+}
 
-    .active{
-      background:#16a34a;
-      color:white;
-    }
+/* API Link */
+.api-card a{
+  text-decoration:none;
+  color:#2563eb;
+  font-size:13px;
+  font-weight:600;
+}
 
-    .inactive{
-      background:#dc2626;
-      color:white;
-    }
+/* Status badges */
+.status{
+  padding:5px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:0.2px;
+}
 
-    .checking{
-      background:#f59e0b;
-      color:black;
-    }
+.active{ background:#16a34a; color:white; }
+.inactive{ background:#dc2626; color:white; }
+.checking{ background:#f59e0b; color:black; }
 
-    .footer{
-      text-align:center;
-      margin-top:30px;
-      color:#555;
-    }
-  </style>
+/* ========== SECTION SPACING ========== */
+.section{
+  margin-top:28px;
+}
+
+/* ========== FOOTER ========== */
+.footer{
+  text-align:center;
+  margin:30px 0;
+  color:#64748b;
+  font-size:13px;
+}
+</style>
 </head>
 
 <body>
 
-<div class="container">
-
-  <div class="header">
-    <h1>Admin Dashboard</h1>
-    <div class="logout">
-      <a href="/admin/logout">Sign out</a>
-    </div>
+<div class="topbar">
+  <div class="title">AWS Admin Console</div>
+  <div class="logout">
+    <a href="/admin/logout">Sign out</a>
   </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main">
+
+  <h2>Overview</h2>
 
   <div class="stats">
     <div class="card">
       <h3>Users</h3>
-      <p>${usersCount}</p>
+      <p id="usersCount">0</p>
     </div>
 
     <div class="card">
       <h3>Surveys</h3>
-      <p>${surveysCount}</p>
+      <p id="surveysCount">0</p>
     </div>
 
     <div class="card">
       <h3>Participants</h3>
-      <p>${participantsCount}</p>
+      <p id="participantsCount">0</p>
     </div>
 
     <div class="card">
       <h3>Answers</h3>
-      <p>${answersCount}</p>
+      <p id="answersCount">0</p>
     </div>
 
     <div class="card">
       <h3>Slot Bookings</h3>
-      <p>${bookingsCount}</p>
+      <p id="bookingsCount">0</p>
     </div>
 
     <div class="card">
       <h3>Audit Events</h3>
-      <p>${auditCount}</p>
+      <p id="auditCount">0</p>
     </div>
   </div>
 
   <div class="section">
-    <h2>Quick Links</h2>
-    <div class="links">
-      <ul>
-        <li><a href="/api/admin/users">Users (JSON)</a></li>
-        <li><a href="/api/admin/surveys">Surveys (JSON)</a></li>
-        <li><a href="/api/admin/audit-logs">Audit Logs (JSON)</a></li>
-        <li><a href="/api/docs">Swagger API Docs</a></li>
-      </ul>
-    </div>
+  <h2>API Health Dashboard</h2>
+  <div class="api-panel">
+    <div class="api-grid" id="apiGrid"></div>
   </div>
-
-  <div class="section">
-    <h2>All Available APIs (Live Status)</h2>
-    <div class="api-list">
-      <div class="api-grid" id="apiGrid">
-        <!-- Cards injected by JS -->
-      </div>
-    </div>
   </div>
 
   <div class="footer">
@@ -430,76 +448,88 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
 
 <script>
 const apis = [
-"/api/users",
-"/api/groups",
-"/api/relay-stage-actions",
-"/api/relay-workflows",
-"/api/action-plan-items",
-"/api/action-plans",
-"/api/audit-events",
-"/api/audit-logs",
-"/api/auth-tokens",
-"/api/calendar-slots",
-"/api/enums",
-"/api/group-members",
-"/api/relay-instances",
-"/api/relay-stages",
-"/api/slot-bookings",
-"/api/survey-answer-selections",
-"/api/survey_answers",
-"/api/survey_options",
-"/api/survey_participants",
-"/api/survey-questions",
-"/api/survey-releases",
-"/api/surveys",
-"/api/approvals",
-"/api/roles",
-"/api/permissions",
-"/api/role-permissions",
-"/api/option-capacities",
-"/api/option-quota-buckets",
-"/api/survey-sessions",
-"/api/admin"
+"/api/users","/api/groups","/api/relay-stage-actions","/api/relay-workflows",
+"/api/action-plan-items","/api/action-plans","/api/audit-events","/api/audit-logs",
+"/api/auth-tokens","/api/calendar-slots","/api/enums","/api/group-members",
+"/api/relay-instances","/api/relay-stages","/api/slot-bookings",
+"/api/survey-answer-selections","/api/survey_answers","/api/survey_options",
+"/api/survey_participants","/api/survey-questions","/api/survey-releases",
+"/api/surveys","/api/approvals","/api/roles","/api/permissions",
+"/api/role-permissions","/api/option-capacities","/api/option-quota-buckets",
+"/api/survey-sessions","/api/admin"
 ];
 
 const grid = document.getElementById("apiGrid");
 
-apis.forEach(api => {
-  const card = document.createElement("div");
-  card.className = "api-card";
+function checkApiStatus(){
+  grid.innerHTML = "";
 
-  const link = document.createElement("a");
-  link.href = api;
-  link.innerText = api;
+  apis.forEach(api => {
+    const card = document.createElement("div");
+    card.className = "api-card";
 
-  const status = document.createElement("span");
-  status.className = "status checking";
-  status.innerText = "CHECKING...";
+    const link = document.createElement("a");
+    link.href = api;
+    link.innerText = api;
 
-  card.appendChild(link);
-  card.appendChild(status);
-  grid.appendChild(card);
+    const status = document.createElement("span");
+    status.className = "status checking";
+    status.innerText = "CHECKING...";
 
-  fetch(api)
-    .then(res => {
-      if(res.ok){
-        status.className = "status active";
-        status.innerText = "ACTIVE";
-      } else {
+    card.appendChild(link);
+    card.appendChild(status);
+    grid.appendChild(card);
+
+    fetch(api)
+      .then(res => {
+        if(res.ok){
+          status.className = "status active";
+          status.innerText = "ACTIVE";
+        } else {
+          status.className = "status inactive";
+          status.innerText = "INACTIVE";
+        }
+      })
+      .catch(() => {
         status.className = "status inactive";
         status.innerText = "INACTIVE";
-      }
-    })
-    .catch(err => {
-      status.className = "status inactive";
-      status.innerText = "INACTIVE";
-    });
-});
+      });
+  });
+}
+
+function loadCounts(){
+  Promise.all([
+    fetch("/api/users").then(r=>r.json()),
+    fetch("/api/surveys").then(r=>r.json()),
+    fetch("/api/survey_participants").then(r=>r.json()),
+    fetch("/api/survey_answers").then(r=>r.json()),
+    fetch("/api/slot-bookings").then(r=>r.json()),
+    fetch("/api/audit-logs").then(r=>r.json())
+  ])
+  .then(([users, surveys, participants, answers, bookings, audits]) => {
+    document.getElementById("usersCount").innerText = users.length || 0;
+    document.getElementById("surveysCount").innerText = surveys.length || 0;
+    document.getElementById("participantsCount").innerText = participants.length || 0;
+    document.getElementById("answersCount").innerText = answers.length || 0;
+    document.getElementById("bookingsCount").innerText = bookings.length || 0;
+    document.getElementById("auditCount").innerText = audits.length || 0;
+  })
+  .catch(err => console.log("Count load failed", err));
+}
+
+// INITIAL LOAD
+checkApiStatus();
+loadCounts();
+
+// AUTO REFRESH EVERY 30 SECONDS
+setInterval(() => {
+  checkApiStatus();
+  loadCounts();
+}, 30000);
 </script>
 
 </body>
 </html>
-
 
 </html>
     `);
@@ -509,3 +539,4 @@ apis.forEach(api => {
 });
 
 module.exports = router;
+
