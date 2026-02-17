@@ -1,0 +1,23 @@
+{
+  "/api/users": true,
+  "/api/calendar-slots": true,
+  "/api/audit-events": true,
+  "/api/relay-workflows": true,
+  "/api/relay-instances": true,
+  "/api/config": false,
+  "/api/health": false,
+  "/api/version": false,
+  "/api/me": false,
+  "/api/metrics": true,
+  "/api/admin": false,
+  "/admin/generated/user/:id": true,
+  "/api/survey-sessions": true,
+  "/admin/generated/groupmember/:id": false,
+  "/admin/generated/optionquotabucket/": false,
+  "/admin/generated/surveyanswerselection/:id": false,
+  "/admin/generated/surveyreleaseaudience/": false,
+  "/admin/generated/surveyreleaseaudience/:id": false,
+  "/admin/generated/surveyanswerselection/": false,
+  "/admin/generated/groupmember/": false,
+  "/admin/generated/userrole/:id": true
+}

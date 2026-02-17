@@ -7,9 +7,11 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerDocument = require('../swagger/swagger.json');
 
 app.use(express.json());
+// accept URL-encoded form bodies for the admin UI login form
+app.use(express.urlencoded({ extended: false }));
 
 // Middleware
-const { requestLogger, notFound, errorHandler } = require('../middleware');
+const { requestLogger, notFound, errorHandler, apiGatekeeper } = require('../middleware');
 app.use(requestLogger);
 
 // Route modules
@@ -42,10 +44,31 @@ const rolePermissionRoutes = require('../routes/rolePermissionRoutes');
 const optionCapacityRoutes = require('../routes/optionCapacityRoutes');
 const optionQuotaBucketRoutes = require('../routes/optionQuotaBucketRoutes');
 const surveySessionRoutes = require('../routes/surveySessionRoutes');
+const adminRoutes = require('../routes/adminRoutes');
+const adminUiRoutes = require('../routes/adminUiRoutes');
+
+// Auto-load any generated admin route files so persisted generated APIs are mounted at startup.
+const fs = require('fs');
+const path = require('path');
+try {
+	const routesDir = path.join(__dirname, '..', 'routes');
+	if (fs.existsSync(routesDir)) {
+		fs.readdirSync(routesDir).filter(f => f.startsWith('generated-') && f.endsWith('.js')).forEach(f => {
+			try {
+				// mount under /admin so files with paths like /generated/<model> work
+				app.use('/admin', require('../routes/' + f));
+				console.log('Mounted generated admin route:', f);
+			} catch (e) { /* ignore load errors at startup */ }
+		});
+	}
+} catch (e) { /* ignore */ }
 
 // Swagger UI route (API docs)
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.get('/api/docs.json', (req, res) => res.json(swaggerDocument));
+
+// Gatekeeper: block/allow API routes based on admin toggles and feature flags
+app.use('/api', apiGatekeeper);
 
 // Mount routes under /api
 app.use('/api/users', userRoutes);
@@ -79,6 +102,12 @@ app.use('/api/role-permissions', rolePermissionRoutes);
 app.use('/api/option-capacities', optionCapacityRoutes);
 app.use('/api/option-quota-buckets', optionQuotaBucketRoutes);
 app.use('/api/survey-sessions', surveySessionRoutes);
+
+// Admin dashboard routes (protected by ADMIN_API_KEY)
+app.use('/api/admin', adminRoutes);
+
+// Admin UI (login page, dashboard). Mount at /admin
+app.use('/admin', adminUiRoutes);
 
 
 app.get('/', (req, res) => res.send('Survey Premium Backend API running (modular app)!'));

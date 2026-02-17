@@ -68,6 +68,18 @@
     "/api/option-quota-buckets": { "get": { "summary": "List option quota buckets", "tags": ["OptionQuotaBuckets"], "responses": { "200": { "description": "A list of option quota buckets" } } } },
     "/api/survey-sessions": { "get": { "summary": "List survey sessions", "tags": ["SurveySessions"], "responses": { "200": { "description": "A list of survey sessions" } } } }
   },
+  "paths_admin": {
+    "/api/admin/metrics": {
+      "get": {
+        "summary": "Admin metrics summary",
+        "tags": ["Admin"],
+        "responses": {
+          "200": { "description": "Counts for users, surveys, participants, answers, slot bookings, and audit events" },
+          "403": { "description": "Forbidden - admin key missing or invalid" }
+        }
+      }
+    }
+  },
   "components": {
     "schemas": {
       "User": {
