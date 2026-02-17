@@ -1,10 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../models');
-const { requireAdmin } = require('../middleware');
+const { requireAdmin, apiControl } = require('../middleware');
+const featureFlags = require('../featureFlags');
+const genController = require('../controllers/generatedApiController');
+// In-memory registry of generated model routes to avoid duplicate registration
+const _generatedModels = {};
 
 /* =========================================================
-   ADMIN LOGIN PAGE (Modern UI)
+   ADMIN LOGIN PAGE
 ========================================================= */
 router.get('/login', (req, res) => {
   res.send(`
@@ -12,130 +16,33 @@ router.get('/login', (req, res) => {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Admin Login</title>
+  <title>Admin Access | Survey Premium</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-    }
-
-    .login-card {
-      width: 100%;
-      max-width: 420px;
-      background: #fff;
-      border-radius: 14px;
-      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
-      padding: 34px;
-    }
-
-    .login-title {
-      margin: 0;
-      text-align: center;
-      font-size: 26px;
-      color: #222;
-    }
-
-    .login-subtitle {
-      text-align: center;
-      margin: 10px 0 28px;
-      color: #666;
-      font-size: 14px;
-    }
-
-    .form-group {
-      margin-bottom: 16px;
-    }
-
-    .form-group span {
-      font-size: 13px;
-      color: #444;
-      display: block;
-      margin-bottom: 6px;
-    }
-
-    .form-control {
-      width: 100%;
-      padding: 12px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-      font-size: 14px;
-      outline: none;
-    }
-
-    .form-control:focus {
-      border-color: #667eea;
-      box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
-    }
-
-    .btn {
-      width: 100%;
-      padding: 13px;
-      border: none;
-      border-radius: 8px;
-      background: #667eea;
-      color: #fff;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s ease;
-    }
-
-    .btn:hover {
-      background: #5a6fdc;
-    }
-
-    .login-hint {
-      margin-top: 22px;
-      font-size: 12px;
-      color: #777;
-      text-align: center;
-    }
+    body { background: radial-gradient(circle at top left, #1e293b, #0f172a); font-family: 'Inter', sans-serif; }
+    .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); }
   </style>
 </head>
-
-<body>
-
-  <div class="login-card">
-    <h1 class="login-title">Admin Login</h1>
-    <p class="login-subtitle">Secure access to admin dashboard</p>
-
-    <form method="post" action="/admin/login">
-
-      <div class="form-group">
-        <span>Username</span>
-        <input class="form-control" name="username" value="admin" required>
-      </div>
-
-      <div class="form-group">
-        <span>Password</span>
-        <input class="form-control" type="password" name="password" value="admin" required>
-      </div>
-
-      <div class="form-group" style="margin-bottom:22px;">
-        <span>Admin Token</span>
-        <input class="form-control" name="token" placeholder="Enter admin API key" required>
-      </div>
-
-      <button type="submit" class="btn">Sign In</button>
-
+<body class="min-h-screen flex items-center justify-center p-4">
+  <div class="glass w-full max-w-md p-10 rounded-3xl shadow-2xl">
+    <div class="text-center mb-10">
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-6 shadow-xl shadow-blue-500/20 text-white font-bold text-2xl">S</div>
+        <h1 class="text-3xl font-bold text-white tracking-tight">Console Access</h1>
+        <p class="text-slate-400 mt-2">Authorized Personnel Only</p>
+    </div>
+        <form method="post" action="/admin/login" class="space-y-6" aria-label="Admin login form">
+            <div>
+                <label for="token" class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Security Token</label>
+                <input id="token" type="password" name="token" placeholder="Enter Admin API Key" required
+                             class="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
+                <p class="text-xs text-slate-400 mt-2">Use your admin API key to authenticate. This token is never stored in the browser.</p>
+            </div>
+      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-[0.98]">
+        Verify & Enter
+      </button>
     </form>
-
-    <p class="login-hint">
-      Default credentials: <code>admin / admin</code>
-    </p>
   </div>
-
 </body>
 </html>
   `);
@@ -144,393 +51,551 @@ router.get('/login', (req, res) => {
 /* =========================================================
    PROCESS LOGIN
 ========================================================= */
-router.post(
-  '/login',
-  express.urlencoded({ extended: false }),
-  async (req, res) => {
+router.post('/login', express.urlencoded({ extended: false }), async (req, res) => {
     try {
-      const { username, password, token } = req.body || {};
+      const { token } = req.body || {};
       const adminKey = (process.env.ADMIN_API_KEY || '').trim();
 
-      if (
-        username !== 'admin' ||
-        password !== 'admin' ||
-        !token ||
-        token !== adminKey
-      ) {
-        return res.status(401).send(`
-          <p style="font-family:Arial;padding:20px;">
-            ❌ Login failed.
-            <a href="/admin/login">Try again</a>
-          </p>
-        `);
+      if (!token || token !== adminKey) {
+        return res.status(401).send(`<div style="background:#0f172a;color:white;height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">
+            <div style="text-align:center;"><h2 style="color:#ef4444;">Access Denied</h2><br><a href="/admin/login" style="color:#3b82f6;">Back to Login</a></div>
+        </div>`);
       }
-
-      const maxAge = 60 * 60 * 24; // 1 day
-
-      res.setHeader(
-        'Set-Cookie',
-        `admin_token=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${maxAge}`
-      );
-
+    // Set admin cookie to expire in 1 hour (3600 seconds). Add Secure when running under HTTPS/production.
+    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production';
+    const secureFlag = isSecure ? '; Secure' : '';
+    res.setHeader('Set-Cookie', `admin_token=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=3600; SameSite=Lax${secureFlag}`);
       return res.redirect('/admin/dashboard');
     } catch (err) {
-      console.error('Admin login error:', err);
-      return res.status(500).send('Server error');
+      return res.status(500).send('Server Error');
     }
-  }
-);
-
-/* =========================================================
-   LOGOUT
-========================================================= */
-router.get('/logout', (req, res) => {
-  res.setHeader(
-    'Set-Cookie',
-    'admin_token=; HttpOnly; Path=/; Max-Age=0'
-  );
-  res.redirect('/admin/login');
 });
 
 /* =========================================================
-   DASHBOARD (Protected)
+   DASHBOARD
 ========================================================= */
 router.get('/dashboard', requireAdmin, async (req, res, next) => {
   try {
-    const User = db.User;
-    const Survey = db.Survey;
-    const SurveyParticipant = db.SurveyParticipant || db.Survey_Participant;
-    const SurveyAnswer = db.SurveyAnswer || db.Survey_Answer;
-    const SlotBooking = db.SlotBooking;
-    const AuditLog = db.AuditLog;
-
-    const [
-      usersCount,
-      surveysCount,
-      participantsCount,
-      answersCount,
-      bookingsCount,
-      auditCount
-    ] = await Promise.all([
-      User ? User.count() : 0,
-      Survey ? Survey.count() : 0,
-      SurveyParticipant ? SurveyParticipant.count() : 0,
-      SurveyAnswer ? SurveyAnswer.count() : 0,
-      SlotBooking ? SlotBooking.count() : 0,
-      AuditLog ? AuditLog.count() : 0
+    const [u, s, p, a, b, l] = await Promise.all([
+      db.User?.count() || 0,
+      db.Survey?.count() || 0,
+      db.SurveyParticipant?.count() || db.Survey_Participant?.count() || 0,
+      db.SurveyAnswer?.count() || db.Survey_Answer?.count() || 0,
+      db.SlotBooking?.count() || 0,
+      db.AuditLog?.count() || 0
     ]);
 
     res.send(`
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>API CONSOLE</title>
-
-<style>
-body{
-  margin:0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-  background:#e5e9f0;
-  color:#0f172a;
-}
-
-/* ========== TOP BAR ========== */
-.topbar{
-  background:#0b1220;
-  color:white;
-  padding:16px 32px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  box-shadow:0 4px 12px rgba(0,0,0,0.3);
-}
-
-.title{
-  font-weight:700;
-  letter-spacing:0.4px;
-  font-size:18px;
-}
-
-.logout a{
-  color:white;
-  text-decoration:none;
-  background:#ef4444;
-  padding:8px 14px;
-  border-radius:8px;
-  font-size:13px;
-  font-weight:600;
-  transition: all .2s ease;
-}
-
-.logout a:hover{
-  background:#dc2626;
-}
-
-/* ========== MAIN CONTENT ========== */
-.main{
-  max-width: 1180px;
-  margin: 28px auto;
-  padding: 0 22px;
-}
-
-.main h2{
-  margin:0 0 14px;
-  font-size:18px;
-  color:#0f172a;
-}
-
-/* ========== STATS GRID ========== */
-.stats{
-  display:grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap:20px;
-  margin-bottom:32px;
-}
-
-.card{
-  background:white;
-  padding:18px 20px;
-  border-radius:16px;
-  box-shadow:0 6px 16px rgba(0,0,0,0.06);
-  border:1px solid #e5e7eb;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.card:hover{
-  transform: translateY(-2px);
-  box-shadow:0 10px 20px rgba(0,0,0,0.08);
-}
-
-.card h3{
-  margin:0;
-  font-size:12px;
-  letter-spacing:.3px;
-  color:#64748b;
-  font-weight:700;
-  text-transform:uppercase;
-}
-
-.card p{
-  margin:10px 0 0;
-  font-size:26px;
-  font-weight:800;
-  color:#2563eb;
-}
-
-/* ========== API STATUS PANEL ========== */
-.api-panel{
-  background:white;
-  padding:22px;
-  border-radius:16px;
-  box-shadow:0 6px 16px rgba(0,0,0,0.06);
-  border:1px solid #e5e7eb;
-}
-
-/* Better grid */
-.api-grid{
-  display:grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap:16px;
-  margin-top:14px;
-}
-
-/* API Card */
-.api-card{
-  background:#f8fafc;
-  padding:12px 14px;
-  border-radius:14px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  border:1px solid #e2e8f0;
-  transition:.2s ease;
-}
-
-.api-card:hover{
-  background:#f1f5f9;
-}
-
-/* API Link */
-.api-card a{
-  text-decoration:none;
-  color:#2563eb;
-  font-size:13px;
-  font-weight:600;
-}
-
-/* Status badges */
-.status{
-  padding:5px 10px;
-  border-radius:999px;
-  font-size:12px;
-  font-weight:700;
-  letter-spacing:0.2px;
-}
-
-.active{ background:#16a34a; color:white; }
-.inactive{ background:#dc2626; color:white; }
-.checking{ background:#f59e0b; color:black; }
-
-/* ========== SECTION SPACING ========== */
-.section{
-  margin-top:28px;
-}
-
-/* ========== FOOTER ========== */
-.footer{
-  text-align:center;
-  margin:30px 0;
-  color:#64748b;
-  font-size:13px;
-}
-</style>
+  <meta charset="utf-8">
+  <title>Analytics | Survey Premium</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #1e293b; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    .tab-active { background: #eff6ff; color: #2563eb; border-bottom: 2px solid #2563eb; }
+    .chart-container { position: relative; height: 300px; width: 100%; }
+  </style>
 </head>
-
-<body>
-
-<div class="topbar">
-  <div class="title">AWS Admin Console</div>
-  <div class="logout">
-    <a href="/admin/logout">Sign out</a>
-  </div>
-</div>
-
-<!-- MAIN CONTENT -->
-<div class="main">
-
-  <h2>Overview</h2>
-
-  <div class="stats">
-    <div class="card">
-      <h3>Users</h3>
-      <p id="usersCount">0</p>
+<body class="flex min-h-screen">
+  <aside class="w-64 bg-[#0f172a] text-slate-400 hidden lg:flex flex-col sticky top-0 h-screen shadow-2xl">
+    <div class="p-6 border-b border-slate-800 flex items-center gap-3">
+        <div class="w-8 h-8 bg-blue-600 rounded-lg text-white flex items-center justify-center font-bold">S</div>
+        <span class="text-white font-bold tracking-tight">Admin Console</span>
     </div>
+    <nav class="flex-1 p-4 space-y-1">
+        <button onclick="switchTab('health')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left">Health Monitor</button>
+        <button onclick="switchTab('analytics')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left">Data Insights</button>
+        <a href="/admin/logout" class="flex items-center gap-3 px-4 py-3 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-all mt-auto">Logout</a>
+    </nav>
+  </aside>
 
-    <div class="card">
-      <h3>Surveys</h3>
-      <p id="surveysCount">0</p>
+  <main class="flex-1 p-8 overflow-y-auto">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-end mb-10">
+            <div>
+                <h1 class="text-4xl font-extrabold text-slate-900 tracking-tight" id="main-title">System Overview</h1>
+                <p class="text-slate-500 font-medium mt-1">Real-time database and service analytics.</p>
+            </div>
+            <div class="flex bg-white p-1.5 border border-slate-200 rounded-2xl shadow-sm">
+                <button onclick="switchTab('health')" id="tab-health" class="px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active">Health</button>
+                <button onclick="switchTab('analytics')" id="tab-analytics" class="px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all">Analytics</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-2 lg:grid-cols-6 gap-6 mb-10">
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.02]">
+                <p class="text-[11px] font-bold text-blue-500 uppercase tracking-widest mb-1">Users</p>
+                <p class="text-3xl font-extrabold text-slate-900">${u}</p>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.02]">
+                <p class="text-[11px] font-bold text-emerald-500 uppercase tracking-widest mb-1">Surveys</p>
+                <p class="text-3xl font-extrabold text-slate-900">${s}</p>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.02]">
+                <p class="text-[11px] font-bold text-indigo-500 uppercase tracking-widest mb-1">Participants</p>
+                <p class="text-3xl font-extrabold text-slate-900">${p}</p>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.02]">
+                <p class="text-[11px] font-bold text-amber-500 uppercase tracking-widest mb-1">Answers</p>
+                <p class="text-3xl font-extrabold text-slate-900">${a}</p>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.02]">
+                <p class="text-[11px] font-bold text-rose-500 uppercase tracking-widest mb-1">Bookings</p>
+                <p class="text-3xl font-extrabold text-slate-900">${b}</p>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm transition-transform hover:scale-[1.02]">
+                <p class="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">Audit Logs</p>
+                <p class="text-3xl font-extrabold text-slate-900">${l}</p>
+            </div>
+        </div>
+
+        <section id="view-health">
+            <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-slate-50/50">
+                    <div class="flex items-center gap-4 w-full md:w-auto">
+                        <h3 class="font-bold text-slate-800">API Surveillance Grid</h3>
+                        <span id="apiCount" class="text-sm text-slate-500 hidden md:inline">(0)</span>
+                    </div>
+                    <div class="flex items-center gap-3 w-full md:w-auto">
+                        <input type="text" id="apiSearch" placeholder="Search endpoints..." aria-label="Search API endpoints"
+                               class="flex-1 md:w-72 bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                        <button id="refreshApis" class="px-3 py-2 bg-white border rounded-xl text-sm hover:bg-slate-100">Refresh</button>
+                        <label class="flex items-center gap-2 text-sm text-slate-500">
+                            <input type="checkbox" id="autoRefresh" /> Auto
+                        </label>
+                        <div id="lastUpdated" class="text-xs text-slate-400 ml-2">-</div>
+                    </div>
+                </div>
+                <div class="h-[600px] overflow-y-auto custom-scrollbar p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="apiGrid" role="list"></div>
+                </div>
+            </div>
+
+            <!-- Quick API Builder -->
+            <div class="mt-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <h4 class="font-bold text-slate-800 mb-3">Quick API Builder</h4>
+                <p class="text-sm text-slate-500 mb-4">Create full CRUD endpoints for an existing DB model with one click. Endpoints are admin-only and mounted under <code>/admin/generated/:model</code>.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <input id="genModel" list="modelList" placeholder="Model name (e.g. User)" class="col-span-2 p-3 border rounded-lg" />
+                        <datalist id="modelList"></datalist>
+                    <button id="createApiBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg">Create API</button>
+                </div>
+                    <div id="modelPreview" class="mt-3 text-sm text-slate-600"></div>
+                    <div id="genResult" class="mt-4 text-sm text-slate-600"></div>
+            </div>
+        </section>
+
+        <section id="view-analytics" class="hidden space-y-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
+                    <div class="mb-6">
+                        <h3 class="text-xl font-bold text-slate-900">User Engagement</h3>
+                        <p class="text-sm text-slate-500">Distribution of Users vs Surveys and Bookings</p>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="distChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
+                    <div class="mb-6">
+                        <h3 class="text-xl font-bold text-slate-900">Data Volume Ratio</h3>
+                        <p class="text-sm text-slate-500">Comparing Answer entries to System Logs</p>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="ratioChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 text-white p-10 rounded-[2rem] shadow-xl">
+                <h3 class="text-2xl font-bold mb-6">Service Intelligence</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="space-y-2">
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Active Ratio</p>
+                        <p class="text-3xl font-light"><span class="font-bold text-blue-400">${((p / (u || 1)) * 100).toFixed(1)}%</span></p>
+                        <p class="text-sm text-slate-500">Participation per user</p>
+                    </div>
+                    <div class="space-y-2">
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Database Density</p>
+                        <p class="text-3xl font-light"><span class="font-bold text-emerald-400">${(a + l + b).toLocaleString()}</span></p>
+                        <p class="text-sm text-slate-500">Total stored records</p>
+                    </div>
+                    <div class="space-y-2">
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Answer Rate</p>
+                        <p class="text-3xl font-light"><span class="font-bold text-amber-400">${(a / (s || 1)).toFixed(1)}</span></p>
+                        <p class="text-sm text-slate-500">Answers per survey</p>
+                    </div>
+                </div>
+            </div>
+        </section>
     </div>
+  </main>
 
-    <div class="card">
-      <h3>Participants</h3>
-      <p id="participantsCount">0</p>
-    </div>
+  <script>
+    const apis = [
+        "/api/users", "/api/groups", "/api/relay-stage-actions", "/api/relay-workflows",
+        "/api/action-plan-items", "/api/action-plans", "/api/audit-events", "/api/audit-logs",
+        "/api/auth-tokens", "/api/calendar-slots", "/api/enums", "/api/group-members",
+        "/api/relay-instances", "/api/relay-stages", "/api/slot-bookings",
+        "/api/survey-answer-selections", "/api/survey_answers", "/api/survey_options",
+        "/api/survey_participants", "/api/survey-questions", "/api/survey-releases",
+        "/api/surveys", "/api/approvals", "/api/roles", "/api/permissions",
+        "/api/role-permissions", "/api/option-capacities", "/api/option-quota-buckets",
+        "/api/survey-sessions", "/api/admin", "/api/health", "/api/config", 
+        "/api/metrics", "/api/version", "/api/me"
+    ];
 
-    <div class="card">
-      <h3>Answers</h3>
-      <p id="answersCount">0</p>
-    </div>
+    let charts = {};
+    let apiFlags = {};
+    let apiAutoRefreshTimer = null;
 
-    <div class="card">
-      <h3>Slot Bookings</h3>
-      <p id="bookingsCount">0</p>
-    </div>
+    function safeId(input) {
+        return 'st_' + String(input).replace(/[^a-z0-9]/gi, '_');
+    }
 
-    <div class="card">
-      <h3>Audit Events</h3>
-      <p id="auditCount">0</p>
-    </div>
-  </div>
+    function switchTab(tab) {
+        document.getElementById('view-health').classList.toggle('hidden', tab !== 'health');
+        document.getElementById('view-analytics').classList.toggle('hidden', tab !== 'analytics');
+        document.getElementById('tab-health').className = tab === 'health' ? 'px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active' : 'px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all';
+        document.getElementById('tab-analytics').className = tab === 'analytics' ? 'px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active' : 'px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all';
+        document.getElementById('main-title').innerText = tab === 'health' ? 'System Health' : 'Data Insights';
+        if(tab === 'analytics') setTimeout(renderCharts, 100);
+    }
 
-  <div class="section">
-  <h2>API Health Dashboard</h2>
-  <div class="api-panel">
-    <div class="api-grid" id="apiGrid"></div>
-  </div>
-  </div>
+    function renderCharts() {
+        if (charts.dist) charts.dist.destroy();
+        if (charts.ratio) charts.ratio.destroy();
 
-  <div class="footer">
-    <p>Survey Premium Backend • Admin Panel</p>
-  </div>
+        const ctxDist = document.getElementById('distChart').getContext('2d');
+        charts.dist = new Chart(ctxDist, {
+            type: 'bar',
+            data: {
+                labels: ['User Base', 'Live Surveys', 'Booked Slots'],
+                datasets: [{
+                    label: 'Count',
+                    data: [${u}, ${s}, ${b}],
+                    backgroundColor: ['#3b82f6', '#10b981', '#f43f5e'],
+                    borderRadius: 12,
+                    barThickness: 40
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { display: false }, border: { display: false } },
+                    x: { grid: { display: false }, border: { display: false } }
+                }
+            }
+        });
 
-</div>
+        const ctxRatio = document.getElementById('ratioChart').getContext('2d');
+        charts.ratio = new Chart(ctxRatio, {
+            type: 'doughnut',
+            data: {
+                labels: ['Answers Provided', 'Audit Activity'],
+                datasets: [{
+                    data: [${a}, ${l}],
+                    backgroundColor: ['#f59e0b', '#64748b'],
+                    borderWidth: 0,
+                    hoverOffset: 20
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '75%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } }
+                }
+            }
+        });
+    }
 
-<script>
-const apis = [
-"/api/users","/api/groups","/api/relay-stage-actions","/api/relay-workflows",
-"/api/action-plan-items","/api/action-plans","/api/audit-events","/api/audit-logs",
-"/api/auth-tokens","/api/calendar-slots","/api/enums","/api/group-members",
-"/api/relay-instances","/api/relay-stages","/api/slot-bookings",
-"/api/survey-answer-selections","/api/survey_answers","/api/survey_options",
-"/api/survey_participants","/api/survey-questions","/api/survey-releases",
-"/api/surveys","/api/approvals","/api/roles","/api/permissions",
-"/api/role-permissions","/api/option-capacities","/api/option-quota-buckets",
-"/api/survey-sessions","/api/admin"
-];
+    // Fetch flags from server and render API grid with enable/disable controls
+    async function checkApiStatus() {
+        const grid = document.getElementById("apiGrid");
+        grid.innerHTML = '';
 
-const grid = document.getElementById("apiGrid");
+        // Get persisted feature flags and disabled routes from the admin endpoints
+        apiFlags = {};
+        try {
+            const r = await fetch('/admin/api/flags', { credentials: 'same-origin' });
+            if (r.ok) apiFlags = await r.json();
+        } catch (e) { /* ignore, we'll fallback to defaults */ }
 
-function checkApiStatus(){
-  grid.innerHTML = "";
+        // Build the grid
+        grid.innerHTML = apis.map(function(api){
+            const id = safeId(api);
+            const isGenerated = String(api).toLowerCase().includes('/generated/');
+            const genBadge = isGenerated ? '<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-indigo-100 text-indigo-700">Generated</span>' : '';
+            return '<div class="api-item flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:bg-white hover:shadow-md transition-all" data-api="' + api + '" role="listitem">'
+                + '<div class="flex flex-col truncate mr-4">'
+                    + '<span class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Endpoint</span>'
+                    + '<div class="flex items-center">'
+                        + '<span class="text-xs font-mono font-semibold text-slate-700 truncate">' + api + '</span>'
+                        + genBadge
+                    + '</div>'
+                + '</div>'
+                + '<div class="flex items-center gap-3">'
+                    + '<span id="' + id + '" class="text-[9px] font-black px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500 uppercase" aria-live="polite">Ping</span>'
+                    + '<button data-api="' + api + '" class="toggle-btn text-sm font-semibold px-3 py-1 rounded-xl border" aria-pressed="false">Toggle</button>'
+                + '</div>'
+            + '</div>';
+        }).join('');
 
-  apis.forEach(api => {
-    const card = document.createElement("div");
-    card.className = "api-card";
+        const now = () => new Date().toISOString();
+        document.getElementById('lastUpdated').innerText = 'Last: ' + now();
+        document.getElementById('apiCount').innerText = '(' + apis.length + ')';
 
-    const link = document.createElement("a");
-    link.href = api;
-    link.innerText = api;
+        // Update status badges by pinging endpoints, and set button labels from flags
+        apis.forEach(api => {
+            const id = safeId(api);
+            const el = document.getElementById(id);
+            // Measure latency and handle timeout
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4000);
+            const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            fetch(api, { signal: controller.signal, credentials: 'same-origin' }).then(r => {
+                clearTimeout(timeout);
+                const took = Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - start);
+                if(el) {
+                    el.innerText = r.ok ? ('Active · ' + took + 'ms') : ('Locked · ' + took + 'ms');
+                    el.className = r.ok ? "text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" : "text-[9px] font-black px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 shadow-sm shadow-amber-200";
+                    el.title = 'Last checked ' + new Date().toLocaleString() + ' - ' + took + 'ms';
+                }
+            }).catch(() => {
+                clearTimeout(timeout);
+                if(el) {
+                    el.innerText = "Error";
+                    el.className = "text-[9px] font-black px-3 py-1.5 rounded-lg bg-red-100 text-red-600";
+                    el.title = 'Failed to reach ' + api;
+                }
+            });
+        });
 
-    const status = document.createElement("span");
-    status.className = "status checking";
-    status.innerText = "CHECKING...";
+        // Hook up toggle buttons
+        document.querySelectorAll('.toggle-btn').forEach(btn => {
+            const apiPath = btn.getAttribute('data-api');
+            const currentState = apiFlags[apiPath] !== undefined ? !!apiFlags[apiPath] : true;
+            btn.innerText = currentState ? 'Disable' : 'Enable';
+            btn.setAttribute('aria-pressed', (!currentState).toString());
+            btn.onclick = async () => {
+                const newState = !(apiFlags[apiPath] !== undefined ? !!apiFlags[apiPath] : true);
+                try {
+                    const resp = await fetch('/admin/api/flags/toggle', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ path: apiPath, enabled: newState })
+                    });
+                    if (resp.ok) {
+                        btn.innerText = newState ? 'Disable' : 'Enable';
+                        apiFlags[apiPath] = newState;
+                        // refresh status badge quickly
+                        const st = document.getElementById(safeId(apiPath));
+                        if (st) {
+                            st.innerText = newState ? 'Active' : 'Locked';
+                            st.className = newState ? "text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" : "text-[9px] font-black px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 shadow-sm shadow-amber-200";
+                        }
+                    } else {
+                        alert('Failed to update flag');
+                    }
+                } catch (e) {
+                    alert('Failed to update flag');
+                }
+            };
+        });
 
-    card.appendChild(link);
-    card.appendChild(status);
-    grid.appendChild(card);
-
-    fetch(api)
-      .then(res => {
-        if(res.ok){
-          status.className = "status active";
-          status.innerText = "ACTIVE";
-        } else {
-          status.className = "status inactive";
-          status.innerText = "INACTIVE";
+        // Wire up refresh and auto-refresh controls
+        const refreshBtn = document.getElementById('refreshApis');
+        if (refreshBtn) {
+            refreshBtn.onclick = () => {
+                checkApiStatus();
+            };
         }
-      })
-      .catch(() => {
-        status.className = "status inactive";
-        status.innerText = "INACTIVE";
-      });
-  });
-}
+        const autoBox = document.getElementById('autoRefresh');
+        if (autoBox) {
+            autoBox.onchange = () => {
+                if (autoBox.checked) {
+                    apiAutoRefreshTimer = setInterval(checkApiStatus, 60 * 1000);
+                } else if (apiAutoRefreshTimer) {
+                    clearInterval(apiAutoRefreshTimer);
+                    apiAutoRefreshTimer = null;
+                }
+            };
+        }
+    }
 
-function loadCounts(){
-  Promise.all([
-    fetch("/api/users").then(r=>r.json()),
-    fetch("/api/surveys").then(r=>r.json()),
-    fetch("/api/survey_participants").then(r=>r.json()),
-    fetch("/api/survey_answers").then(r=>r.json()),
-    fetch("/api/slot-bookings").then(r=>r.json()),
-    fetch("/api/audit-logs").then(r=>r.json())
-  ])
-  .then(([users, surveys, participants, answers, bookings, audits]) => {
-    document.getElementById("usersCount").innerText = users.length || 0;
-    document.getElementById("surveysCount").innerText = surveys.length || 0;
-    document.getElementById("participantsCount").innerText = participants.length || 0;
-    document.getElementById("answersCount").innerText = answers.length || 0;
-    document.getElementById("bookingsCount").innerText = bookings.length || 0;
-    document.getElementById("auditCount").innerText = audits.length || 0;
-  })
-  .catch(err => console.log("Count load failed", err));
-}
+        document.getElementById('apiSearch').addEventListener('input', (e) => {
+        const t = e.target.value.toLowerCase();
+        let visible = 0;
+        document.querySelectorAll('.api-item').forEach(i => {
+            const ok = i.getAttribute('data-api').toLowerCase().includes(t);
+            i.style.display = ok ? 'flex' : 'none';
+            if (ok) visible++;
+        });
+        const countEl = document.getElementById('apiCount');
+        if (countEl) countEl.innerText = '(' + visible + ')';
+    });
 
-// INITIAL LOAD
-checkApiStatus();
-loadCounts();
+        // Auto-logout client-side after 1 hour as a user-friendly fallback
+        setTimeout(() => {
+                window.location.href = '/admin/logout';
+        }, 1000 * 60 * 60);
 
-// AUTO REFRESH EVERY 30 SECONDS
-setInterval(() => {
-  checkApiStatus();
-  loadCounts();
-}, 30000);
-</script>
+        // Ensure persisted generated routes are mounted server-side and add them to the client apis list
+        (async function ensureGeneratedMounted(){
+            try {
+                // Best-effort: ask server to reload/mount persisted generated routes
+                await fetch('/admin/api/generated-reload', { method: 'POST', credentials: 'same-origin' });
+            } catch (e) { /* ignore */ }
 
+            try {
+                const r = await fetch('/admin/api/generated-list', { credentials: 'same-origin' });
+                if (r.ok) {
+                    const body = await r.json();
+                    const manifest = body.manifest || body || {};
+                    Object.keys(manifest).forEach(k => {
+                        const lower = String(k).toLowerCase();
+                        const base = '/admin/generated/' + lower + '/';
+                        const idPath = '/admin/generated/' + lower + '/:id';
+                        if (!apis.includes(base)) apis.push(base);
+                        if (!apis.includes(idPath)) apis.push(idPath);
+                    });
+                }
+            } catch (e) { /* ignore */ }
+
+            // now run the usual status check
+            checkApiStatus();
+        })();
+
+        // Quick API Builder wiring (creates admin-only CRUD endpoints mounted under /admin/generated/:model)
+        const createApiBtn = document.getElementById('createApiBtn');
+        const genModelInput = document.getElementById('genModel');
+        const genResult = document.getElementById('genResult');
+        if (createApiBtn && genModelInput) {
+            // load available model names for the datalist
+            (async function loadModels(){
+                try {
+                    const r = await fetch('/admin/api/models', { credentials: 'same-origin' });
+                    if (!r.ok) return;
+                    const body = await r.json();
+                    const list = document.getElementById('modelList');
+                    if (!list || !body || !body.models) return;
+                    list.innerHTML = body.models.map(m => '<option value="' + m + '"></option>').join('');
+                } catch (e) { /* ignore */ }
+            })();
+            // debounce preview calls
+            let previewTimer = null;
+            const modelPreviewEl = document.getElementById('modelPreview');
+
+            const renderPreview = (data) => {
+                if (!modelPreviewEl) return;
+                if (!data || !data.attributes) {
+                    modelPreviewEl.innerText = 'No preview available';
+                    return;
+                }
+                const attrs = data.attributes;
+                if (!attrs.length) {
+                    modelPreviewEl.innerText = 'Model has no attributes or preview unavailable.';
+                    return;
+                }
+                let html = '<div class="mb-2"><label class="inline-flex items-center gap-2"><input type="checkbox" id="attr_select_all" checked /> <span class="text-sm">Select all</span></label></div>';
+                html += '<div class="grid grid-cols-2 gap-2">';
+                attrs.forEach(a => {
+                    html += '<label class="inline-flex items-center gap-2"><input type="checkbox" class="attr-checkbox" data-attr="' + a + '" checked /> <span class="text-xs font-mono">' + a + '</span></label>';
+                });
+                html += '</div>';
+                modelPreviewEl.innerHTML = html;
+
+                const selectAll = document.getElementById('attr_select_all');
+                selectAll.addEventListener('change', (e) => {
+                    document.querySelectorAll('.attr-checkbox').forEach(cb => cb.checked = selectAll.checked);
+                });
+            };
+
+            const fetchPreview = async (name) => {
+                if (!name) { modelPreviewEl.innerText = ''; return; }
+                try {
+                    const r = await fetch('/admin/api/generate-model/preview?modelName=' + encodeURIComponent(name), { credentials: 'same-origin' });
+                    if (!r.ok) {
+                        modelPreviewEl.innerText = 'Preview error: ' + r.statusText;
+                        return;
+                    }
+                    const body = await r.json();
+                    renderPreview(body);
+                } catch (e) {
+                    modelPreviewEl.innerText = 'Preview failed: ' + e.message;
+                }
+            };
+
+            genModelInput.addEventListener('input', (e) => {
+                clearTimeout(previewTimer);
+                previewTimer = setTimeout(() => fetchPreview(e.target.value.trim()), 350);
+            });
+
+            createApiBtn.onclick = async () => {
+                const modelName = (genModelInput.value || '').trim();
+                if (!modelName) {
+                    genResult.innerText = 'Enter a model name (as exported in src/models, e.g. User).';
+                    return;
+                }
+                // collect selected attributes
+                const selected = [];
+                document.querySelectorAll('.attr-checkbox').forEach(cb => {
+                    if (cb.checked) selected.push(cb.getAttribute('data-attr'));
+                });
+
+                genResult.innerText = 'Creating...';
+                try {
+                    const resp = await fetch('/admin/api/generate-model', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ modelName, allowedFields: selected })
+                    });
+                    const body = await resp.json();
+                    if (!resp.ok) {
+                        genResult.innerText = 'Error: ' + (body.error || JSON.stringify(body));
+                    } else {
+                        genResult.innerHTML = '<div class="text-slate-700">Created endpoints:</div><ul class="list-disc ml-6 mt-2 text-slate-600">' +
+                            body.paths.map(p => '<li><code>' + p + '</code></li>').join('') + '</ul>' +
+                            (body.allowedFields ? ('<div class="mt-2 text-xs text-slate-500">Allowed fields: ' + body.allowedFields.join(', ') + '</div>') : '');
+
+                        // Add created endpoints to the surveillance list and refresh status
+                        try {
+                            (body.paths || []).forEach(p => {
+                                // use same format as apis array (relative paths)
+                                if (typeof p === 'string') {
+                                    // strip host if present - keep path-only
+                                    const url = new URL(p, window.location.origin);
+                                    const path = url.pathname + (url.search || '');
+                                    if (!apis.includes(path)) apis.push(path);
+                                }
+                            });
+                        } catch (e) {
+                            // fallback: push raw strings
+                            (body.paths || []).forEach(p => { if (p && !apis.includes(p)) apis.push(p); });
+                        }
+
+                        // refresh the API grid immediately to show new endpoints
+                        try { checkApiStatus(); } catch (e) { /* ignore */ }
+                    }
+                } catch (e) {
+                    genResult.innerText = 'Failed to create API: ' + e.message;
+                }
+            };
+        }
+  </script>
 </body>
-</html>
-
 </html>
     `);
   } catch (err) {
@@ -538,5 +603,183 @@ setInterval(() => {
   }
 });
 
-module.exports = router;
+/* =========================================================
+     ADMIN: Feature Flags API
+     - GET /admin/api/flags  -> returns current flags (object)
+     - POST /admin/api/flags/toggle -> body { path, enabled }
+         toggles both the persistent feature flag and the in-memory apiControl
+========================================================= */
+router.get('/api/flags', requireAdmin, (req, res) => {
+    try {
+        const flags = featureFlags.getFlags();
+        res.json(flags || {});
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to read flags' });
+    }
+});
 
+router.post('/api/flags/toggle', express.json(), requireAdmin, (req, res) => {
+    try {
+        const { path, enabled } = req.body || {};
+        if (!path) return res.status(400).json({ error: 'Missing path' });
+
+        // Persist the flag (featureFlags determines default behavior)
+        featureFlags.setFlag(path, !!enabled);
+
+        // Also toggle in-memory API gatekeeper for immediate effect
+        // Note: apiControl.toggle expects isOff boolean (true to disable)
+        apiControl.toggle(path, enabled === false);
+
+        return res.json({ path, enabled: !!enabled });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to toggle flag' });
+    }
+});
+
+/**
+ * ADMIN: Generate CRUD endpoints for an existing Sequelize model (admin-only, in-memory).
+ * POST /admin/api/generate-model  { modelName }
+ * Creates endpoints mounted under /admin/generated/:modelName
+ */
+router.post('/api/generate-model', express.json(), requireAdmin, async (req, res) => {
+    try {
+        const { modelName, allowedFields } = req.body || {};
+        if (!modelName) return res.status(400).json({ error: 'Missing modelName' });
+
+        // find model key in db (case-insensitive)
+        const modelKey = Object.keys(db).find(k => k.toLowerCase() === String(modelName).toLowerCase());
+        if (!modelKey) return res.status(404).json({ error: 'Model not found: ' + modelName });
+
+        if (_generatedModels[modelKey]) {
+            const base = '/admin/generated/' + modelKey.toLowerCase();
+            return res.json({ ok: true, paths: [base + '/', base + '/:id'] });
+        }
+
+        // Delegate to controller which writes a persisted route file + manifest
+        const result = await genController.createGeneratedApi(modelKey, allowedFields);
+
+        // Attempt to require the generated route file and mount on this router so it's live immediately
+        try {
+            const path = require('path');
+            const genFile = path.join(__dirname, '..', 'routes', 'generated-' + modelKey.toLowerCase() + '.js');
+            // require by absolute path, clear cache if present
+            try { delete require.cache[require.resolve(genFile)]; } catch (e) {}
+            const genMod = require(genFile);
+            // If module exports a router, mount it on the admin router
+            if (genMod && (typeof genMod === 'function' || genMod.stack)) {
+                try { router.use(genMod); } catch (e) { console.error('Failed to router.use generated module:', e && e.message ? e.message : e); }
+            }
+        } catch (e) {
+            // non-fatal: can't require/mount immediately
+            console.error('Failed to mount generated route immediately:', e && e.message ? e.message : e);
+        }
+
+        // Fallback: attempt to mount all persisted generated routes (best-effort, non-fatal)
+        try {
+            const manifest = genController.listGenerated();
+            const p = require('path');
+            Object.keys(manifest || {}).forEach(k => {
+                try {
+                    const rel = manifest[k].file; // e.g., routes/generated-xxx.js
+                    const genFile = p.join(__dirname, '..', rel);
+                    try { delete require.cache[require.resolve(genFile)]; } catch (e) {}
+                    const m = require(genFile);
+                    if (m && (typeof m === 'function' || m.stack)) {
+                        try { router.use(m); } catch (e) { /* ignore per-file mount errors */ }
+                    }
+                    _generatedModels[k] = { allowedFields: manifest[k].allowedFields || [] };
+                } catch (e) {
+                    // ignore file-level errors
+                }
+            });
+        } catch (e) {
+            // ignore fallback errors
+        }
+
+        _generatedModels[modelKey] = { allowedFields: result.allowedFields };
+        return res.json(result);
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// List available models (useful for the UI dropdown)
+router.get('/api/models', requireAdmin, (req, res) => {
+    try {
+        const keys = Object.keys(db).filter(k => {
+            const m = db[k];
+            return m && (m.rawAttributes || typeof m.findAll === 'function');
+        });
+        res.json({ models: keys });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Preview model attributes before generating API
+router.get('/api/generate-model/preview', requireAdmin, (req, res) => {
+    try {
+        const modelName = String(req.query.modelName || '').trim();
+        if (!modelName) return res.status(400).json({ error: 'Missing modelName' });
+        const modelKey = Object.keys(db).find(k => k.toLowerCase() === modelName.toLowerCase());
+        if (!modelKey) return res.status(404).json({ error: 'Model not found' });
+        const Model = db[modelKey];
+        const attrs = Model && Model.rawAttributes ? Object.keys(Model.rawAttributes) : [];
+        const pk = Model && Model.primaryKeyAttribute ? Model.primaryKeyAttribute : null;
+        return res.json({ modelKey, attributes: attrs, primaryKey: pk });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// Diagnostic: list in-memory generated models and routes (admin-only)
+router.get('/api/generated-list', requireAdmin, (req, res) => {
+    try {
+        const generatedKeys = Object.keys(_generatedModels || {});
+        // extract mounted routes from this router for inspection
+        const mounted = (router.stack || []).map(layer => {
+            try {
+                if (layer && layer.route && layer.route.path) {
+                    return { path: layer.route.path, methods: layer.route.methods };
+                }
+                if (layer && layer.name && layer.regexp) {
+                    return { name: layer.name, regexp: String(layer.regexp) };
+                }
+                return null;
+            } catch (e) { return null; }
+        }).filter(Boolean);
+
+    return res.json({ generated: generatedKeys, routes: mounted, manifest: (function(){ try { return genController.listGenerated(); } catch(e){ return {}; } })() });
+    } catch (err) {
+        return res.status(500).json({ error: err && err.message ? err.message : 'Failed' });
+    }
+});
+
+// Reload all persisted generated route files and mount them on the admin router (admin-only)
+router.post('/api/generated-reload', requireAdmin, (req, res) => {
+    try {
+        const manifest = genController.listGenerated();
+        const path = require('path');
+        const mounted = [];
+        Object.keys(manifest || {}).forEach(key => {
+            try {
+                const fileRel = manifest[key].file; // e.g., routes/generated-xxx.js
+                const genFile = path.join(__dirname, '..', fileRel);
+                // clear cache and require
+                try { delete require.cache[require.resolve(genFile)]; } catch (e) {}
+                const mod = require(genFile);
+                if (mod && (typeof mod === 'function' || mod.stack)) {
+                    try { router.use(mod); } catch (e) { /* ignore mount errors for individual files */ }
+                }
+                // mark as mounted
+                _generatedModels[key] = { allowedFields: manifest[key].allowedFields || [] };
+                mounted.push(key);
+            } catch (e) {
+                // per-file load error, continue
+            }
+        });
+        return res.json({ ok: true, mounted });
+    } catch (e) {
+        return res.status(500).json({ error: e && e.message ? e.message : 'Failed to reload' });
+    }
+});
+
+module.exports = router;
