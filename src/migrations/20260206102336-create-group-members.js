@@ -4,7 +4,7 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('group_members', {
       group_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'groups',
@@ -13,8 +13,9 @@ module.exports = {
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE',
       },
+
       user_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'users',
@@ -23,8 +24,15 @@ module.exports = {
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE',
       },
+
+      role_in_group: {
+        type: Sequelize.STRING(100),
+        allowNull: true,
+      },
+
       joined_at: {
         type: Sequelize.DATE,
+        allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
     }, {
@@ -33,10 +41,16 @@ module.exports = {
       collate: 'utf8mb4_unicode_ci',
     });
 
+    // Composite Primary Key
     await queryInterface.addConstraint('group_members', {
       fields: ['group_id', 'user_id'],
       type: 'primary key',
       name: 'pk_group_members',
+    });
+
+    // Index for faster user lookups
+    await queryInterface.addIndex('group_members', ['user_id'], {
+      name: 'idx_group_members_user',
     });
   },
 

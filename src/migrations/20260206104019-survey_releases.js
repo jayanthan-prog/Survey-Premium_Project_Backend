@@ -4,13 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('survey_releases', {
       release_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: false,
         primaryKey: true,
-        defaultValue: Sequelize.literal('(UUID())'),
+        defaultValue: Sequelize.UUIDV4,
       },
 
       survey_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'surveys',
@@ -27,32 +28,54 @@ module.exports = {
 
       phase: {
         type: Sequelize.INTEGER,
+        allowNull: true,
       },
 
-      opens_at: Sequelize.DATE,
-      closes_at: Sequelize.DATE,
+      opens_at: {
+        type: Sequelize.DATE,
+        allowNull: true,
+      },
+
+      closes_at: {
+        type: Sequelize.DATE,
+        allowNull: true,
+      },
 
       is_frozen: {
         type: Sequelize.BOOLEAN,
+        allowNull: false,
         defaultValue: false,
       },
 
       release_config: {
         type: Sequelize.JSON,
-        defaultValue: {},
+        allowNull: false,
+        defaultValue: Sequelize.literal('(JSON_OBJECT())'),
       },
 
       created_by: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: true,
         references: {
           model: 'users',
           key: 'user_id',
         },
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
       },
 
       created_at: {
         type: Sequelize.DATE,
+        allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+      },
+
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal(
+          'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+        ),
       },
     }, {
       engine: 'InnoDB',

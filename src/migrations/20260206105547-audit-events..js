@@ -4,14 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('audit_events', {
       event_id: {
-        type: Sequelize.CHAR(36),
-        primaryKey: true,
+        type: Sequelize.UUID,
         allowNull: false,
-        defaultValue: Sequelize.literal('(UUID())'),
+        primaryKey: true,
+        defaultValue: Sequelize.UUIDV4,
       },
 
       user_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: true,
         references: {
           model: 'users',
@@ -22,7 +22,7 @@ module.exports = {
       },
 
       survey_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: true,
         references: {
           model: 'surveys',
@@ -33,7 +33,7 @@ module.exports = {
       },
 
       action_plan_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: true,
         references: {
           model: 'action_plans',
@@ -56,18 +56,37 @@ module.exports = {
       created_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.NOW,
       },
-    }, {
-      engine: 'InnoDB',
-      charset: 'utf8mb4',
-      collate: 'utf8mb4_unicode_ci',
+
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.NOW,
+      },
     });
 
     // Indexes
-    await queryInterface.addIndex('audit_events', ['user_id'], { name: 'idx_audit_user' });
-    await queryInterface.addIndex('audit_events', ['survey_id'], { name: 'idx_audit_survey' });
-    await queryInterface.addIndex('audit_events', ['action_plan_id'], { name: 'idx_audit_action_plan' });
+    await queryInterface.addIndex('audit_events', ['user_id'], {
+      name: 'idx_audit_user',
+    });
+
+    await queryInterface.addIndex('audit_events', ['survey_id'], {
+      name: 'idx_audit_survey',
+    });
+
+    await queryInterface.addIndex('audit_events', ['action_plan_id'], {
+      name: 'idx_audit_action_plan',
+    });
+
+    // Recommended for audit filtering
+    await queryInterface.addIndex('audit_events', ['event_type'], {
+      name: 'idx_audit_event_type',
+    });
+
+    await queryInterface.addIndex('audit_events', ['created_at'], {
+      name: 'idx_audit_created_at',
+    });
   },
 
   async down(queryInterface) {

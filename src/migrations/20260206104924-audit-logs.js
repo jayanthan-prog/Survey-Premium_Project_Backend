@@ -6,15 +6,15 @@ module.exports = {
       'audit_logs',
       {
         audit_log_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         actor_user_id: {
-          type: Sequelize.CHAR(36),
-          allowNull: true, // IMPORTANT for SET NULL
+          type: Sequelize.UUID,
+          allowNull: true,
           references: {
             model: 'users',
             key: 'user_id',
@@ -24,17 +24,17 @@ module.exports = {
         },
 
         entity_type: {
-          type: Sequelize.STRING(50), // USER | SURVEY | GROUP | ANSWER | AUTH
+          type: Sequelize.STRING(50),
           allowNull: false,
         },
 
         entity_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: true,
         },
 
         action: {
-          type: Sequelize.STRING(50), // CREATE | UPDATE | DELETE | LOGIN | LOGOUT
+          type: Sequelize.STRING(50),
           allowNull: false,
         },
 
@@ -73,14 +73,20 @@ module.exports = {
 
     await queryInterface.addIndex(
       'audit_logs',
-      ['entity_type', 'entity_id'],
-      { name: 'idx_audit_entity' }
+      ['entity_type', 'entity_id', 'created_at'],
+      { name: 'idx_audit_entity_time' }
     );
 
     await queryInterface.addIndex(
       'audit_logs',
       ['actor_user_id'],
       { name: 'idx_audit_actor' }
+    );
+
+    await queryInterface.addIndex(
+      'audit_logs',
+      ['created_at'],
+      { name: 'idx_audit_created_at' }
     );
   },
 

@@ -4,13 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('relay_stage_actions', {
       relay_stage_action_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: false,
         primaryKey: true,
-        defaultValue: Sequelize.literal('(UUID())'),
+        defaultValue: Sequelize.UUIDV4,
       },
 
       relay_stage_id: {
-        type: Sequelize.CHAR(36),  // ⚠️ Must match parent column exactly
+        type: Sequelize.UUID, // Must match relay_stages.relay_stage_id
         allowNull: false,
         references: {
           model: 'relay_stages',
@@ -32,18 +33,21 @@ module.exports = {
 
       sort_order: {
         type: Sequelize.INTEGER,
+        allowNull: false,
         defaultValue: 0,
       },
 
       created_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.NOW,
       },
-    }, {
-      engine: 'InnoDB',         // ⚠️ Must be InnoDB for FKs
-      charset: 'utf8mb4',
-      collate: 'utf8mb4_unicode_ci',
+
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.NOW,
+      },
     });
 
     await queryInterface.addIndex(

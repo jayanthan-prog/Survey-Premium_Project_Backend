@@ -6,14 +6,14 @@ module.exports = {
       'approval_items',
       {
         approval_item_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         approval_workflow_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           references: {
             model: 'approval_workflows',
@@ -24,8 +24,8 @@ module.exports = {
         },
 
         approval_step_id: {
-          type: Sequelize.CHAR(36),
-          allowNull: true, // MUST be nullable if SET NULL
+          type: Sequelize.UUID,
+          allowNull: true,
           references: {
             model: 'approval_steps',
             key: 'approval_step_id',
@@ -35,12 +35,12 @@ module.exports = {
         },
 
         entity_type: {
-          type: Sequelize.STRING(50), // SURVEY | RELEASE | OPTION | USER
+          type: Sequelize.STRING(50),
           allowNull: false,
         },
 
         entity_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
         },
 
@@ -51,8 +51,8 @@ module.exports = {
         },
 
         decided_by: {
-          type: Sequelize.CHAR(36),
-          allowNull: true, // REQUIRED for SET NULL
+          type: Sequelize.UUID,
+          allowNull: true,
           references: {
             model: 'users',
             key: 'user_id',
@@ -79,10 +79,16 @@ module.exports = {
       }
     );
 
+    await queryInterface.addConstraint('approval_items', {
+      fields: ['approval_workflow_id', 'entity_type', 'entity_id'],
+      type: 'unique',
+      name: 'uniq_workflow_entity_item',
+    });
+
     await queryInterface.addIndex(
       'approval_items',
-      ['approval_workflow_id'],
-      { name: 'idx_approval_items_workflow' }
+      ['approval_step_id', 'status'],
+      { name: 'idx_step_status' }
     );
 
     await queryInterface.addIndex(

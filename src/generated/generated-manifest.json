@@ -1,43 +1,16 @@
 {
-  "SurveyAnswerSelection": {
-    "file": "routes/generated-surveyanswerselection.js",
+  "User": {
+    "file": "routes/generated-user.js",
     "allowedFields": [
-      "selection_id"
+      "user_id"
     ],
-    "createdAt": "2026-02-17T08:36:46.939Z"
+    "createdAt": "2026-02-18T03:36:12.086Z"
   },
-  "SurveyReleaseAudience": {
-    "file": "routes/generated-surveyreleaseaudience.js",
+  "RelayWorkflow": {
+    "file": "routes/generated-relayworkflow.js",
     "allowedFields": [
-      "release_audience_id"
+      "relay_workflow_id"
     ],
-    "createdAt": "2026-02-17T08:40:42.864Z"
-  },
-  "OptionQuotaBucket": {
-    "file": "routes/generated-optionquotabucket.js",
-    "allowedFields": [
-      "quota_id",
-      "capacity_id",
-      "bucket_key",
-      "bucket_value",
-      "quota_limit",
-      "updated_at"
-    ],
-    "createdAt": "2026-02-17T08:41:04.413Z"
-  },
-  "GroupMember": {
-    "file": "routes/generated-groupmember.js",
-    "allowedFields": [
-      "group_id"
-    ],
-    "createdAt": "2026-02-17T08:50:47.224Z"
-  },
-  "UserRole": {
-    "file": "routes/generated-userrole.js",
-    "allowedFields": [
-      "user_role_id",
-      "role"
-    ],
-    "createdAt": "2026-02-17T09:03:45.980Z"
+    "createdAt": "2026-02-18T03:38:00.364Z"
   }
 }

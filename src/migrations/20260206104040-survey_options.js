@@ -4,31 +4,37 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('survey_options', {
       option_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: false,
         primaryKey: true,
-        defaultValue: Sequelize.literal('(UUID())'),
+        defaultValue: Sequelize.UUIDV4,
       },
 
       survey_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'surveys',
           key: 'survey_id',
         },
         onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
       },
 
       parent_option_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: true,
         references: {
           model: 'survey_options',
           key: 'option_id',
         },
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
       },
 
       code: {
         type: Sequelize.STRING(100),
+        allowNull: true,
       },
 
       label: {
@@ -36,23 +42,40 @@ module.exports = {
         allowNull: false,
       },
 
-      description: Sequelize.TEXT,
+      description: {
+        type: Sequelize.TEXT,
+        allowNull: true,
+      },
 
-      sort_order: Sequelize.INTEGER,
+      sort_order: {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+      },
 
       is_active: {
         type: Sequelize.BOOLEAN,
+        allowNull: false,
         defaultValue: true,
       },
 
       option_meta: {
         type: Sequelize.JSON,
-        defaultValue: {},
+        allowNull: false,
+        defaultValue: Sequelize.literal('(JSON_OBJECT())'),
       },
 
       created_at: {
         type: Sequelize.DATE,
+        allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+      },
+
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal(
+          'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+        ),
       },
     }, {
       engine: 'InnoDB',

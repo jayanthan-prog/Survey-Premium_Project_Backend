@@ -6,24 +6,24 @@ module.exports = {
       'approval_workflows',
       {
         approval_workflow_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         entity_type: {
-          type: Sequelize.STRING(50), // SURVEY | RELEASE | OPTION | USER
+          type: Sequelize.STRING(50),
           allowNull: false,
         },
 
         entity_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
         },
 
         requested_by: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           references: {
             model: 'users',
@@ -34,8 +34,8 @@ module.exports = {
         },
 
         approved_by: {
-          type: Sequelize.CHAR(36),
-          allowNull: true, // REQUIRED for SET NULL
+          type: Sequelize.UUID,
+          allowNull: true,
           references: {
             model: 'users',
             key: 'user_id',
@@ -81,8 +81,14 @@ module.exports = {
 
     await queryInterface.addIndex(
       'approval_workflows',
-      ['status'],
-      { name: 'idx_approval_status' }
+      ['status', 'requested_at'],
+      { name: 'idx_approval_status_time' }
+    );
+
+    await queryInterface.addIndex(
+      'approval_workflows',
+      ['requested_by'],
+      { name: 'idx_approval_requested_by' }
     );
   },
 

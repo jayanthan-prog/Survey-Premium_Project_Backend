@@ -6,14 +6,14 @@ module.exports = {
       'survey_answer_selections',
       {
         selection_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         answer_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           references: {
             model: 'survey_answers',
@@ -24,7 +24,7 @@ module.exports = {
         },
 
         question_option_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           references: {
             model: 'survey_question_options',
@@ -36,12 +36,21 @@ module.exports = {
 
         value: {
           type: Sequelize.STRING(255),
+          allowNull: true,
         },
 
         created_at: {
           type: Sequelize.DATE,
           allowNull: false,
           defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        },
+
+        updated_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal(
+            'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+          ),
         },
       },
       {
@@ -50,6 +59,12 @@ module.exports = {
         collate: 'utf8mb4_unicode_ci',
       }
     );
+
+    await queryInterface.addConstraint('survey_answer_selections', {
+      fields: ['answer_id', 'question_option_id'],
+      type: 'unique',
+      name: 'uq_answer_selection_unique',
+    });
 
     await queryInterface.addIndex(
       'survey_answer_selections',

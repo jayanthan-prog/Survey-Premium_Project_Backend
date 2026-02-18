@@ -4,13 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('calendar_slots', {
       calendar_slot_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: false,
         primaryKey: true,
-        defaultValue: Sequelize.literal('(UUID())'),
+        defaultValue: Sequelize.UUIDV4,
       },
 
       survey_id: {
-        type: Sequelize.CHAR(36), // Must match surveys.survey_id
+        type: Sequelize.UUID, // Must match surveys.survey_id
         allowNull: false,
         references: {
           model: 'surveys',
@@ -33,18 +34,27 @@ module.exports = {
       created_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.NOW,
       },
-    }, {
-      engine: 'InnoDB',           // Must be InnoDB for FKs
-      charset: 'utf8mb4',
-      collate: 'utf8mb4_unicode_ci',
+
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.NOW,
+      },
     });
 
     await queryInterface.addIndex(
       'calendar_slots',
       ['survey_id'],
       { name: 'idx_calendar_slots_survey' }
+    );
+
+    // Optional but recommended for time-range queries
+    await queryInterface.addIndex(
+      'calendar_slots',
+      ['survey_id', 'start_time', 'end_time'],
+      { name: 'idx_calendar_slots_time_range' }
     );
   },
 

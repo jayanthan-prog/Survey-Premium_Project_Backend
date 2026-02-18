@@ -5,15 +5,8 @@ module.exports = {
     await queryInterface.createTable(
       'user_roles',
       {
-        user_role_id: {
-          type: Sequelize.CHAR(36),
-          allowNull: false,
-          primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
-        },
-
         user_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           references: {
             model: 'users',
@@ -23,9 +16,15 @@ module.exports = {
           onUpdate: 'CASCADE',
         },
 
-        role: {
-          type: Sequelize.STRING(50), // ADMIN | CREATOR | PARTICIPANT | REVIEWER
+        role_id: {
+          type: Sequelize.UUID,
           allowNull: false,
+          references: {
+            model: 'roles',
+            key: 'role_id',
+          },
+          onDelete: 'CASCADE',
+          onUpdate: 'CASCADE',
         },
 
         assigned_at: {
@@ -41,14 +40,15 @@ module.exports = {
       }
     );
 
-    await queryInterface.addIndex(
-      'user_roles',
-      ['user_id', 'role'],
-      {
-        unique: true,
-        name: 'uniq_user_role',
-      }
-    );
+    await queryInterface.addConstraint('user_roles', {
+      fields: ['user_id', 'role_id'],
+      type: 'primary key',
+      name: 'pk_user_roles',
+    });
+
+    await queryInterface.addIndex('user_roles', ['role_id'], {
+      name: 'idx_user_roles_role',
+    });
   },
 
   async down(queryInterface) {

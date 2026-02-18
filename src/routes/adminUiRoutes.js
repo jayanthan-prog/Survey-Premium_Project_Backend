@@ -247,8 +247,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         "/api/survey_participants", "/api/survey-questions", "/api/survey-releases",
         "/api/surveys", "/api/approvals", "/api/roles", "/api/permissions",
         "/api/role-permissions", "/api/option-capacities", "/api/option-quota-buckets",
-        "/api/survey-sessions", "/api/admin", "/api/health", "/api/config", 
-        "/api/metrics", "/api/version", "/api/me"
+        "/api/survey-sessions",, 
+       
     ];
 
     let charts = {};

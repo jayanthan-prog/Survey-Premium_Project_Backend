@@ -6,14 +6,14 @@ module.exports = {
       'auth_tokens',
       {
         auth_token_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         user_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           references: {
             model: 'users',
@@ -23,8 +23,8 @@ module.exports = {
           onUpdate: 'CASCADE',
         },
 
-        token: {
-          type: Sequelize.STRING(512),
+        token_hash: {
+          type: Sequelize.STRING(255),
           allowNull: false,
           unique: true,
         },
@@ -49,6 +49,14 @@ module.exports = {
           allowNull: false,
           defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
         },
+
+        updated_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal(
+            'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+          ),
+        },
       },
       {
         engine: 'InnoDB',
@@ -61,6 +69,12 @@ module.exports = {
       'auth_tokens',
       ['user_id', 'token_type'],
       { name: 'idx_auth_tokens_user_type' }
+    );
+
+    await queryInterface.addIndex(
+      'auth_tokens',
+      ['expires_at'],
+      { name: 'idx_auth_tokens_expiration' }
     );
   },
 

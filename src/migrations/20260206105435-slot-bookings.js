@@ -4,13 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('slot_bookings', {
       slot_booking_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: false,
         primaryKey: true,
-        defaultValue: Sequelize.literal('(UUID())'),
+        defaultValue: Sequelize.UUIDV4,
       },
 
       calendar_slot_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'calendar_slots',
@@ -21,7 +22,7 @@ module.exports = {
       },
 
       participant_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'survey_participants',
@@ -34,12 +35,20 @@ module.exports = {
       booked_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.NOW,
       },
-    }, {
-      engine: 'InnoDB',
-      charset: 'utf8mb4',
-      collate: 'utf8mb4_unicode_ci',
+
+      created_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.NOW,
+      },
+
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.NOW,
+      },
     });
 
     await queryInterface.addIndex(
@@ -47,6 +56,13 @@ module.exports = {
       ['calendar_slot_id', 'participant_id'],
       { name: 'idx_slot_bookings_calendar_participant' }
     );
+
+    // Optional but recommended: prevent duplicate booking of same slot by same participant
+    await queryInterface.addConstraint('slot_bookings', {
+      fields: ['calendar_slot_id', 'participant_id'],
+      type: 'unique',
+      name: 'uniq_slot_booking_per_participant',
+    });
   },
 
   async down(queryInterface) {

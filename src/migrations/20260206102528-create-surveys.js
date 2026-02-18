@@ -4,10 +4,10 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('surveys', {
       survey_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         primaryKey: true,
-        defaultValue: Sequelize.literal('(UUID())'),
+        defaultValue: Sequelize.UUIDV4,
       },
 
       code: {
@@ -49,7 +49,7 @@ module.exports = {
       config: {
         type: Sequelize.JSON,
         allowNull: false,
-        defaultValue: {},
+        defaultValue: Sequelize.literal('(JSON_OBJECT())'),
       },
 
       dsl_rules: {
@@ -58,7 +58,7 @@ module.exports = {
       },
 
       created_by: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: true,
         references: {
           model: 'users',
@@ -81,6 +81,10 @@ module.exports = {
           'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
         ),
       },
+    }, {
+      engine: 'InnoDB',
+      charset: 'utf8mb4',
+      collate: 'utf8mb4_unicode_ci',
     });
 
     await queryInterface.addIndex('surveys', ['type', 'status'], {
@@ -88,7 +92,12 @@ module.exports = {
     });
   },
 
-  async down(queryInterface) {
+  async down(queryInterface, Sequelize) {
     await queryInterface.dropTable('surveys');
+
+    // Important: clean ENUM types in MySQL (safe practice)
+    await queryInterface.sequelize.query(`
+      DROP TYPE IF EXISTS enum_surveys_type;
+    `).catch(() => {});
   },
 };

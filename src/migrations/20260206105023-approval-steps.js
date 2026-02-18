@@ -6,14 +6,14 @@ module.exports = {
       'approval_steps',
       {
         approval_step_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         approval_workflow_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           references: {
             model: 'approval_workflows',
@@ -29,8 +29,8 @@ module.exports = {
         },
 
         approver_user_id: {
-          type: Sequelize.CHAR(36),
-          allowNull: true, // REQUIRED for SET NULL
+          type: Sequelize.UUID,
+          allowNull: true,
           references: {
             model: 'users',
             key: 'user_id',
@@ -74,6 +74,14 @@ module.exports = {
       {
         unique: true,
         name: 'uniq_workflow_step_order',
+      }
+    );
+
+    await queryInterface.addIndex(
+      'approval_steps',
+      ['approval_workflow_id', 'status'],
+      {
+        name: 'idx_workflow_status',
       }
     );
 

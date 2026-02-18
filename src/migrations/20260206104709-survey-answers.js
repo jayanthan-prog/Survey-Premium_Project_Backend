@@ -6,20 +6,32 @@ module.exports = {
       'survey_answers',
       {
         answer_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         participation_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
+          references: {
+            model: 'survey_participation',
+            key: 'participation_id',
+          },
+          onDelete: 'CASCADE',
+          onUpdate: 'CASCADE',
         },
 
-        field_key: {
-          type: Sequelize.STRING(100),
+        question_id: {
+          type: Sequelize.UUID,
           allowNull: false,
+          references: {
+            model: 'survey_questions',
+            key: 'question_id',
+          },
+          onDelete: 'CASCADE',
+          onUpdate: 'CASCADE',
         },
 
         value_json: {
@@ -32,6 +44,14 @@ module.exports = {
           allowNull: false,
           defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
         },
+
+        updated_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal(
+            'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+          ),
+        },
       },
       {
         engine: 'InnoDB',
@@ -40,25 +60,19 @@ module.exports = {
       }
     );
 
-    // ✅ ADD FK AFTER TABLE EXISTS
+    // Prevent duplicate answers per question
     await queryInterface.addConstraint('survey_answers', {
-      fields: ['participation_id'],
-      type: 'foreign key',
-      name: 'fk_answers_participation',
-      references: {
-        table: 'survey_participation',
-        field: 'participation_id',
-      },
-      onDelete: 'CASCADE',
-      onUpdate: 'CASCADE',
+      fields: ['participation_id', 'question_id'],
+      type: 'unique',
+      name: 'uq_answer_participation_question',
     });
 
     await queryInterface.addIndex('survey_answers', ['participation_id'], {
       name: 'idx_answers_participation',
     });
 
-    await queryInterface.addIndex('survey_answers', ['field_key'], {
-      name: 'idx_answers_field',
+    await queryInterface.addIndex('survey_answers', ['question_id'], {
+      name: 'idx_answers_question',
     });
   },
 

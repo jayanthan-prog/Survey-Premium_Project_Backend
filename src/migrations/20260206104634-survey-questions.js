@@ -6,19 +6,30 @@ module.exports = {
       'survey_questions',
       {
         question_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         survey_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
+          references: {
+            model: 'surveys',
+            key: 'survey_id',
+          },
+          onDelete: 'CASCADE',
+          onUpdate: 'CASCADE',
         },
 
         question_type: {
-          type: Sequelize.STRING(30), // SINGLE | MULTI | TEXT | SCALE
+          type: Sequelize.ENUM(
+            'SINGLE',
+            'MULTI',
+            'TEXT',
+            'SCALE'
+          ),
           allowNull: false,
         },
 
@@ -41,13 +52,21 @@ module.exports = {
         config: {
           type: Sequelize.JSON,
           allowNull: false,
-          defaultValue: {},
+          defaultValue: Sequelize.literal('(JSON_OBJECT())'),
         },
 
         created_at: {
           type: Sequelize.DATE,
           allowNull: false,
           defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        },
+
+        updated_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal(
+            'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+          ),
         },
       },
       {
@@ -57,24 +76,18 @@ module.exports = {
       }
     );
 
-    // ✅ ADD FK AFTER TABLE CREATION
-    await queryInterface.addConstraint('survey_questions', {
-      fields: ['survey_id'],
-      type: 'foreign key',
-      name: 'fk_questions_survey',
-      references: {
-        table: 'surveys',
-        field: 'survey_id',
-      },
-      onDelete: 'CASCADE',
-      onUpdate: 'CASCADE',
-    });
-
     await queryInterface.addIndex(
       'survey_questions',
       ['survey_id', 'sort_order'],
       { name: 'idx_questions_order' }
     );
+
+    // Optional strict ordering enforcement
+    await queryInterface.addConstraint('survey_questions', {
+      fields: ['survey_id', 'sort_order'],
+      type: 'unique',
+      name: 'uq_questions_survey_order',
+    });
   },
 
   async down(queryInterface) {

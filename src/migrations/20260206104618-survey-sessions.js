@@ -6,15 +6,21 @@ module.exports = {
       'survey_sessions',
       {
         session_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
           primaryKey: true,
-          defaultValue: Sequelize.literal('(UUID())'),
+          defaultValue: Sequelize.UUIDV4,
         },
 
         participant_id: {
-          type: Sequelize.CHAR(36),
+          type: Sequelize.UUID,
           allowNull: false,
+          references: {
+            model: 'survey_participants',
+            key: 'participant_id',
+          },
+          onDelete: 'CASCADE',
+          onUpdate: 'CASCADE',
         },
 
         started_at: {
@@ -24,6 +30,11 @@ module.exports = {
         },
 
         last_activity_at: {
+          type: Sequelize.DATE,
+          allowNull: true,
+        },
+
+        expires_at: {
           type: Sequelize.DATE,
           allowNull: true,
         },
@@ -41,7 +52,21 @@ module.exports = {
         session_data: {
           type: Sequelize.JSON,
           allowNull: false,
-          defaultValue: {},
+          defaultValue: Sequelize.literal('(JSON_OBJECT())'),
+        },
+
+        created_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        },
+
+        updated_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal(
+            'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+          ),
         },
       },
       {
@@ -51,23 +76,16 @@ module.exports = {
       }
     );
 
-    // ADD FK SEPARATELY (MySQL best practice)
-    await queryInterface.addConstraint('survey_sessions', {
-      fields: ['participant_id'],
-      type: 'foreign key',
-      name: 'fk_sessions_participant',
-      references: {
-        table: 'survey_participants',
-        field: 'participant_id',
-      },
-      onDelete: 'CASCADE',
-      onUpdate: 'CASCADE',
-    });
-
     await queryInterface.addIndex(
       'survey_sessions',
       ['participant_id'],
       { name: 'idx_session_participant' }
+    );
+
+    await queryInterface.addIndex(
+      'survey_sessions',
+      ['expires_at'],
+      { name: 'idx_session_expiry' }
     );
   },
 

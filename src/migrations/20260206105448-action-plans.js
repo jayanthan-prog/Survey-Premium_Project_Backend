@@ -4,13 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('action_plans', {
       action_plan_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
+        allowNull: false,
         primaryKey: true,
-        defaultValue: Sequelize.literal('(UUID())'),
+        defaultValue: Sequelize.UUIDV4,
       },
 
       survey_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: false,
         references: {
           model: 'surveys',
@@ -21,7 +22,7 @@ module.exports = {
       },
 
       participant_id: {
-        type: Sequelize.CHAR(36),
+        type: Sequelize.UUID,
         allowNull: true,
         references: {
           model: 'survey_participants',
@@ -38,31 +39,33 @@ module.exports = {
 
       description: {
         type: Sequelize.TEXT,
+        allowNull: true,
       },
 
       status: {
         type: Sequelize.STRING(20),
+        allowNull: false,
         defaultValue: 'PENDING',
       },
 
       created_at: {
         type: Sequelize.DATE,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        allowNull: false,
+        defaultValue: Sequelize.NOW,
       },
 
       updated_at: {
         type: Sequelize.DATE,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
+        allowNull: false,
+        defaultValue: Sequelize.NOW,
       },
-    }, {
-      engine: 'InnoDB',
-      charset: 'utf8mb4',
-      collate: 'utf8mb4_unicode_ci',
     });
 
-    await queryInterface.addIndex('action_plans', ['survey_id', 'participant_id'], {
-      name: 'idx_action_plans_survey_participant',
-    });
+    await queryInterface.addIndex(
+      'action_plans',
+      ['survey_id', 'participant_id'],
+      { name: 'idx_action_plans_survey_participant' }
+    );
   },
 
   async down(queryInterface) {
