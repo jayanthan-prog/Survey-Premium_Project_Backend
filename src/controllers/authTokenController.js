@@ -1,4 +1,5 @@
-const AuthToken = require('../models/auth_token');
+const db = require('../models');
+const AuthToken = db.AuthToken;
 
 exports.getAllTokens = async (req, res) => {
   try {

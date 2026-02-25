@@ -21,26 +21,26 @@ SurveyAnswer.init(
       onUpdate: 'CASCADE',
       onDelete: 'CASCADE',
     },
-    field_key: {
-      type: DataTypes.STRING(100),
+    question_id: {
+      type: DataTypes.CHAR(36),
       allowNull: false,
+      references: {
+        model: 'survey_questions',
+        key: 'question_id',
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'CASCADE',
     },
     value_json: {
-      type: DataTypes.TEXT('long'),
+      type: DataTypes.JSON,
       allowNull: true,
-      validate: {
-        isJson(value) {
-          if (value !== null) {
-            try {
-              JSON.parse(value);
-            } catch (err) {
-              throw new Error('value_json must be valid JSON');
-            }
-          }
-        },
-      },
     },
     created_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+    },
+    updated_at: {
       type: DataTypes.DATE,
       allowNull: false,
       defaultValue: DataTypes.NOW,

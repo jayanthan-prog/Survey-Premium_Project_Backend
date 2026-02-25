@@ -1,4 +1,5 @@
-const SurveyAnswer = require('../models/survey_answer');
+const db = require('../models');
+const SurveyAnswer = db.SurveyAnswer;
 
 /**
  * Get all survey answers
@@ -30,11 +31,11 @@ exports.getAnswerById = async (req, res) => {
  */
 exports.createAnswer = async (req, res) => {
   try {
-    const { participation_id, field_key, value_json } = req.body;
+    const { participation_id, question_id, value_json } = req.body;
     const newAnswer = await SurveyAnswer.create({
       participation_id,
-      field_key,
-      value_json: value_json ? JSON.stringify(value_json) : null,
+      question_id,
+      value_json,
     });
     res.status(201).json(newAnswer);
   } catch (err) {
@@ -47,12 +48,12 @@ exports.createAnswer = async (req, res) => {
  */
 exports.updateAnswer = async (req, res) => {
   try {
-    const { field_key, value_json } = req.body;
+    const { question_id, value_json } = req.body;
     const answer = await SurveyAnswer.findByPk(req.params.id);
     if (!answer) return res.status(404).json({ error: 'Not found' });
 
-    if (field_key !== undefined) answer.field_key = field_key;
-    if (value_json !== undefined) answer.value_json = JSON.stringify(value_json);
+    if (question_id !== undefined) answer.question_id = question_id;
+    if (value_json !== undefined) answer.value_json = value_json;
 
     await answer.save();
     res.json(answer);

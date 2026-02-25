@@ -1,5 +1,6 @@
 'use strict';
-const RelayWorkflow = require('../models/relay_workflow');
+const db = require('../models');
+const RelayWorkflow = db.RelayWorkflow;
 
 // GET all relay workflows
 exports.getAllRelayWorkflows = async (req, res) => {

@@ -1,16 +1,11 @@
 {
-  "User": {
-    "file": "routes/generated-user.js",
+  "Group": {
+    "file": "routes/generated-group.js",
     "allowedFields": [
-      "user_id"
+      "group_id",
+      "name",
+      "created_at"
     ],
-    "createdAt": "2026-02-18T03:36:12.086Z"
-  },
-  "RelayWorkflow": {
-    "file": "routes/generated-relayworkflow.js",
-    "allowedFields": [
-      "relay_workflow_id"
-    ],
-    "createdAt": "2026-02-18T03:38:00.364Z"
+    "createdAt": "2026-02-25T05:15:27.988Z"
   }
 }

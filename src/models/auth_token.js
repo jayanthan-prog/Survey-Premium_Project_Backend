@@ -12,8 +12,8 @@ const AuthToken = sequelize.define('AuthToken', {
     type: DataTypes.CHAR(36),
     allowNull: false,
   },
-  token: {
-    type: DataTypes.STRING(512),
+  token_hash: {
+    type: DataTypes.STRING(255),
     allowNull: false,
     unique: true,
   },
@@ -30,6 +30,11 @@ const AuthToken = sequelize.define('AuthToken', {
     allowNull: true,
   },
   created_at: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
+  },
+  updated_at: {
     type: DataTypes.DATE,
     allowNull: false,
     defaultValue: DataTypes.NOW,

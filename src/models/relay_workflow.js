@@ -9,14 +9,20 @@ const RelayWorkflow = sequelize.define('RelayWorkflow', {
     allowNull: false,
     defaultValue: DataTypes.UUIDV4,
   },
+  survey_id: {
+    type: DataTypes.CHAR(36),
+    allowNull: false,
+  },
   name: {
     type: DataTypes.STRING(255),
     allowNull: false,
   },
-  description: {
-    type: DataTypes.TEXT,
-  },
   created_at: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
+  },
+  updated_at: {
     type: DataTypes.DATE,
     allowNull: false,
     defaultValue: DataTypes.NOW,

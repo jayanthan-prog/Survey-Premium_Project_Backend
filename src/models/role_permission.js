@@ -3,12 +3,6 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
 const RolePermission = sequelize.define('RolePermission', {
-  id: {
-    type: DataTypes.CHAR(36),
-    primaryKey: true,
-    allowNull: false,
-    defaultValue: DataTypes.UUIDV4,
-  },
   role_id: {
     type: DataTypes.CHAR(36),
     allowNull: false,
@@ -17,9 +11,15 @@ const RolePermission = sequelize.define('RolePermission', {
     type: DataTypes.CHAR(36),
     allowNull: false,
   },
+  created_at: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
+  },
 }, {
   tableName: 'role_permissions',
   timestamps: false,
+  primaryKey: ['role_id', 'permission_id'],
 });
 
 RolePermission.associate = (models) => {
