@@ -1,6 +1,7 @@
-const express = require('express');
+    const express = require('express');
 const router = express.Router();
 const path = require('path');
+const crypto = require('crypto');
 const db = require('../models');
 const { requireAdmin, apiControl } = require('../middleware');
 const featureFlags = require('../featureFlags');
@@ -9,9 +10,13 @@ const genController = require('../controllers/generatedApiController');
 // In-memory registry of generated model routes to avoid duplicate registration
 const _generatedModels = {};
 
-/* =========================================================
+// Admin login sessions storage
+const adminSessions = new Map();
+let sessionIdCounter = 1;
+
+/*=========================================================
    ADMIN LOGIN PAGE
-========================================================= */
+=========================================================*/
 router.get('/login', (req, res) => {
   res.send(`
 <!doctype html>
@@ -40,6 +45,12 @@ router.get('/login', (req, res) => {
                              class="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
                 <p class="text-xs text-slate-400 mt-2">Use your admin API key to authenticate. This token is never stored in the browser.</p>
             </div>
+            <div>
+                <label for="adminName" class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Admin Name</label>
+                <input id="adminName" type="text" name="adminName" placeholder="Enter your name" required
+                             class="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
+                <p class="text-xs text-slate-400 mt-2">This name will be associated with your login session.</p>
+            </div>
       <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-[0.98]">
         Verify & Enter
       </button>
@@ -63,6 +74,7 @@ router.post('/login', express.urlencoded({ extended: false }), async (req, res) 
             <div style="text-align:center;"><h2 style="color:#ef4444;">Access Denied</h2><br><a href="/admin/login" style="color:#3b82f6;">Back to Login</a></div>
         </div>`);
       }
+    
     // Set admin cookie to expire in 1 hour (3600 seconds). Add Secure when running under HTTPS/production.
     const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production';
     const secureFlag = isSecure ? '; Secure' : '';
@@ -329,6 +341,23 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                     </div>
                 </div>
             </div>
+
+            <!-- Admin Login Sessions -->
+            <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900">Admin Login Sessions</h3>
+                        <p class="text-sm text-slate-500">Active admin access with IP addresses</p>
+                    </div>
+                    <button onclick="loadSessions()" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-sm font-medium transition-all flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Refresh
+                    </button>
+                </div>
+                <div id="healthSessionsList" class="space-y-3">
+                    <div class="text-center py-8 text-slate-500">Loading sessions...</div>
+                </div>
+            </div>
         </section>
 
         <!-- Settings View -->
@@ -401,8 +430,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                 <h3 class="text-xl font-bold text-slate-900 mb-6">Quick Actions</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <button onclick="refreshPage()" class="flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all group">
-                        <div class="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                    <button onclick="refreshPage()" class="flex items-center gap-3 p-5 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-all group border border-blue-100 hover:border-blue-300">
+                        <div class="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                         </div>
                         <div class="text-left">
@@ -410,22 +439,13 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                             <p class="text-xs text-slate-500">Reload this dashboard</p>
                         </div>
                     </button>
-                    <button onclick="window.open('/admin/dashboard', '_blank')" class="flex items-center gap-3 p-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all group">
-                        <div class="w-10 h-10 bg-indigo-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                    <button onclick="window.open('/admin/dashboard', '_blank')" class="flex items-center gap-3 p-5 bg-indigo-50 hover:bg-indigo-100 rounded-2xl transition-all group border border-indigo-100 hover:border-indigo-300">
+                        <div class="w-12 h-12 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-110 transition-transform">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                         </div>
                         <div class="text-left">
                             <p class="font-bold text-slate-900">Open in New Tab</p>
                             <p class="text-xs text-slate-500">Open same page</p>
-                        </div>
-                    </button>
-                    <button onclick="checkApiStatus()" class="flex items-center gap-3 p-4 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-all group">
-                        <div class="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        </div>
-                        <div class="text-left">
-                            <p class="font-bold text-slate-900">Check API Health</p>
-                            <p class="text-xs text-slate-500">Verify all endpoints</p>
                         </div>
                     </button>
                 </div>
@@ -434,35 +454,35 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             <!-- System Settings -->
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                 <h3 class="text-xl font-bold text-slate-900 mb-6">Additional Settings</h3>
-                <div class="space-y-4">
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">Auto-refresh API Status</p>
                             <p class="text-sm text-slate-500">Automatically check endpoint health every minute</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsAutoRefresh" class="sr-only peer" checked onchange="toggleSetting('autoRefresh', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">Dark Mode Sidebar</p>
                             <p class="text-sm text-slate-500">Use dark theme for the admin sidebar</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsDarkMode" class="sr-only peer" checked onchange="toggleSetting('darkMode', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">Show Notifications</p>
                             <p class="text-sm text-slate-500">Display system notifications and alerts</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsNotifications" class="sr-only peer" checked onchange="toggleSetting('notifications', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
                 </div>
@@ -489,17 +509,21 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                         <p class="text-2xl font-bold text-slate-900">${b}</p>
                     </div>
                 </div>
-                <div class="mt-4 flex flex-wrap gap-3">
-                    <button onclick="exportData('users')" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-all">
+                <div class="mt-6 flex flex-wrap gap-3">
+                    <button onclick="exportData('users')" class="px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         Export Users
                     </button>
-                    <button onclick="exportData('surveys')" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-all">
+                    <button onclick="exportData('surveys')" class="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         Export Surveys
                     </button>
-                    <button onclick="exportData('answers')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-all">
+                    <button onclick="exportData('answers')" class="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         Export Answers
                     </button>
-                    <button onclick="clearCache()" class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-all">
+                    <button onclick="clearCache()" class="px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-red-500/20 hover:shadow-red-500/40 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         Clear Cache
                     </button>
                 </div>
@@ -508,77 +532,96 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             <!-- Security Settings -->
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                 <h3 class="text-xl font-bold text-slate-900 mb-6">Security Settings</h3>
-                <div class="space-y-4">
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">Two-Factor Authentication</p>
                             <p class="text-sm text-slate-500">Require 2FA for admin access</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settings2FA" class="sr-only peer" onchange="toggleSetting('2fa', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:border-blue-200 transition-colors">
                         <div>
                             <p class="font-semibold text-slate-900">Session Timeout</p>
                             <p class="text-sm text-slate-500">Auto logout after inactivity</p>
                         </div>
-                        <select id="sessionTimeout" onchange="updateSessionTimeout(this.value)" class="px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                        <select id="sessionTimeout" onchange="updateSessionTimeout(this.value)" class="px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium bg-white hover:border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22%236b7280%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22M19%209l-7%207-7-7%22%2F%3E%3C%2Fsvg%3E')] bg-[length:20px] bg-[right_8px_center] bg-no-repeat pr-10">
                             <option value="15">15 minutes</option>
                             <option value="30">30 minutes</option>
                             <option value="60" selected>1 hour</option>
                             <option value="120">2 hours</option>
                         </select>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:border-blue-200 transition-colors">
                         <div>
                             <p class="font-semibold text-slate-900">IP Whitelist</p>
                             <p class="text-sm text-slate-500">Restrict admin access to specific IPs</p>
                         </div>
-                        <button onclick="editIpWhitelist()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition-all">
+                        <button onclick="editIpWhitelist()" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 rounded-lg text-sm font-medium transition-all flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                             Configure
                         </button>
                     </div>
                 </div>
             </div>
 
+            <!-- Active Sessions -->
+            <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900">Active Sessions</h3>
+                        <p class="text-sm text-slate-500">Manage admin login sessions</p>
+                    </div>
+                    <button onclick="loadSessions()" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-sm font-medium transition-all flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Refresh
+                    </button>
+                </div>
+                <div id="sessionsList" class="space-y-3">
+                    <div class="text-center py-8 text-slate-500">Loading sessions...</div>
+                </div>
+            </div>
+
             <!-- API Configuration -->
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                 <h3 class="text-xl font-bold text-slate-900 mb-6">API Configuration</h3>
-                <div class="space-y-4">
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">Rate Limiting</p>
                             <p class="text-sm text-slate-500">Limit API requests per minute</p>
                         </div>
                         <div class="flex items-center gap-2">
-                            <input type="number" id="rateLimit" value="100" class="w-20 px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                            <span class="text-sm text-slate-500">/min</span>
+                            <input type="number" id="rateLimit" value="100" min="10" max="10000" step="10" class="w-24 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" />
+                            <span class="text-sm text-slate-500 font-medium">/min</span>
                         </div>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">API Key Rotation</p>
                             <p class="text-sm text-slate-500">Auto-rotate admin API keys</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsApiKeyRotation" class="sr-only peer" onchange="toggleSetting('apiKeyRotation', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">API Logging</p>
                             <p class="text-sm text-slate-500">Log all API requests</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsApiLogging" class="sr-only peer" checked onchange="toggleSetting('apiLogging', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
                 </div>
-                <button onclick="saveApiConfig()" class="mt-4 px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-all">
+                <button onclick="saveApiConfig()" class="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                     Save Configuration
                 </button>
             </div>
@@ -586,35 +629,35 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             <!-- Notification Settings -->
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                 <h3 class="text-xl font-bold text-slate-900 mb-6">Notification Settings</h3>
-                <div class="space-y-4">
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">Email Notifications</p>
                             <p class="text-sm text-slate-500">Receive email alerts for important events</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsEmailNotify" class="sr-only peer" checked onchange="toggleSetting('emailNotify', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">Survey Completion Alerts</p>
                             <p class="text-sm text-slate-500">Notify when surveys are completed</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsSurveyAlerts" class="sr-only peer" checked onchange="toggleSetting('surveyAlerts', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
-                    <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl">
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
                         <div>
                             <p class="font-semibold text-slate-900">System Error Alerts</p>
                             <p class="text-sm text-slate-500">Notify on system errors</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="settingsErrorAlerts" class="sr-only peer" checked onchange="toggleSetting('errorAlerts', this.checked)">
-                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
                 </div>
@@ -624,8 +667,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                 <h3 class="text-xl font-bold text-slate-900 mb-6">Maintenance</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <button onclick="runMaintenance('optimize')" class="flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-all group">
-                        <div class="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                    <button onclick="runMaintenance('optimize')" class="flex items-center gap-3 p-5 bg-purple-50 hover:bg-purple-100 rounded-2xl transition-all group border border-purple-100 hover:border-purple-300">
+                        <div class="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20 group-hover:scale-110 transition-transform">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                         </div>
                         <div class="text-left">
@@ -633,8 +676,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                             <p class="text-xs text-slate-500">Improve performance</p>
                         </div>
                     </button>
-                    <button onclick="runMaintenance('backup')" class="flex items-center gap-3 p-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all group">
-                        <div class="w-10 h-10 bg-indigo-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                    <button onclick="runMaintenance('backup')" class="flex items-center gap-3 p-5 bg-indigo-50 hover:bg-indigo-100 rounded-2xl transition-all group border border-indigo-100 hover:border-indigo-300">
+                        <div class="w-12 h-12 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-110 transition-transform">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                         </div>
                         <div class="text-left">
@@ -642,8 +685,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                             <p class="text-xs text-slate-500">Backup database</p>
                         </div>
                     </button>
-                    <button onclick="runMaintenance('logs')" class="flex items-center gap-3 p-4 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all group">
-                        <div class="w-10 h-10 bg-slate-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                    <button onclick="runMaintenance('logs')" class="flex items-center gap-3 p-5 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-all group border border-slate-100 hover:border-slate-300">
+                        <div class="w-12 h-12 bg-slate-500 rounded-xl flex items-center justify-center shadow-lg shadow-slate-500/20 group-hover:scale-110 transition-transform">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                         </div>
                         <div class="text-left">
@@ -651,8 +694,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                             <p class="text-xs text-slate-500">System log files</p>
                         </div>
                     </button>
-                    <button onclick="runMaintenance('restart')" class="flex items-center gap-3 p-4 bg-red-50 hover:bg-red-100 rounded-xl transition-all group">
-                        <div class="w-10 h-10 bg-red-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                    <button onclick="runMaintenance('restart')" class="flex items-center gap-3 p-5 bg-red-50 hover:bg-red-100 rounded-2xl transition-all group border border-red-100 hover:border-red-300">
+                        <div class="w-12 h-12 bg-red-500 rounded-xl flex items-center justify-center shadow-lg shadow-red-500/20 group-hover:scale-110 transition-transform">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                         </div>
                         <div class="text-left">
@@ -660,6 +703,34 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                             <p class="text-xs text-slate-500">Requires confirmation</p>
                         </div>
                     </button>
+                </div>
+            </div>
+
+            <!-- IP Whitelist Modal -->
+            <div id="ipWhitelistModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden items-center justify-center z-50">
+                <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                    <div class="p-6 border-b border-slate-100">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-xl font-bold text-slate-900">IP Whitelist Configuration</h3>
+                            <button onclick="closeIpModal()" class="p-2 hover:bg-slate-100 rounded-xl transition-all">
+                                <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+                        <p class="text-sm text-slate-500 mt-1">Enter comma-separated IP addresses (e.g., 192.168.1.1, 10.0.0.1)</p>
+                    </div>
+                    <div class="p-6">
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">IP Addresses</label>
+                        <textarea id="ipWhitelistInput" rows="4" placeholder="Enter IP addresses separated by commas" class="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none"></textarea>
+                        <p class="text-xs text-slate-400 mt-2">Leave empty to disable IP restrictions</p>
+                    </div>
+                    <div class="p-6 border-t border-slate-100 flex justify-end gap-3">
+                        <button onclick="closeIpModal()" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium transition-all">
+                            Cancel
+                        </button>
+                        <button onclick="saveIpWhitelist()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-all">
+                            Save Changes
+                        </button>
+                    </div>
                 </div>
             </div>
         </section>
@@ -860,13 +931,26 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         showToast('Session timeout updated to ' + minutes + ' minutes', 'success');
     }
 
-    // Edit IP whitelist
+    // Edit IP whitelist - Modern modal
     function editIpWhitelist() {
-        const ips = prompt('Enter comma-separated IP addresses (leave empty to disable):', '');
-        if (ips !== null) {
-            localStorage.setItem('admin_setting_ipWhitelist', ips);
-            showToast('IP whitelist updated!', 'success');
-        }
+        const currentIps = localStorage.getItem('admin_setting_ipWhitelist') || '';
+        document.getElementById('ipWhitelistInput').value = currentIps;
+        document.getElementById('ipWhitelistModal').classList.remove('hidden');
+        document.getElementById('ipWhitelistModal').classList.add('flex');
+    }
+
+    // Close IP whitelist modal
+    function closeIpModal() {
+        document.getElementById('ipWhitelistModal').classList.add('hidden');
+        document.getElementById('ipWhitelistModal').classList.remove('flex');
+    }
+
+    // Save IP whitelist
+    function saveIpWhitelist() {
+        const ips = document.getElementById('ipWhitelistInput').value;
+        localStorage.setItem('admin_setting_ipWhitelist', ips);
+        closeIpModal();
+        showToast('IP whitelist updated!', 'success');
     }
 
     // Save API configuration
@@ -874,6 +958,117 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         const rateLimit = document.getElementById('rateLimit').value;
         localStorage.setItem('admin_setting_rateLimit', rateLimit);
         showToast('API configuration saved!', 'success');
+    }
+
+    // Session Management Functions
+    async function loadSessions() {
+        try {
+            const resp = await fetch('/admin/api/sessions', { credentials: 'same-origin' });
+            if (!resp.ok) throw new Error('Failed to load sessions');
+            const data = await resp.json();
+            renderSessions(data.sessions || []);
+        } catch (e) {
+            showToast('Error loading sessions: ' + e.message, 'error');
+        }
+    }
+
+    function renderSessions(sessions) {
+        const container = document.getElementById('sessionsList');
+        const healthContainer = document.getElementById('healthSessionsList');
+        
+        if (sessions.length === 0) {
+            const emptyHtml = '<div class="text-center py-8 text-slate-500">No active sessions</div>';
+            if (container) container.innerHTML = emptyHtml;
+            if (healthContainer) healthContainer.innerHTML = emptyHtml;
+            return;
+        }
+        
+        let html = '';
+        for (const s of sessions) {
+            const activeClass = s.active ? 'bg-emerald-100' : 'bg-red-100';
+            const activeTextClass = s.active ? 'text-emerald-600' : 'text-red-600';
+            const statusBadge = s.active ? '<span class="px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>' : '<span class="px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Revoked</span>';
+            const revokeBtn = s.active ? '<button onclick="revokeSession(' + s.id + ')" class="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-lg text-sm font-medium transition-all">Revoke</button>' : '';
+            
+            html += '<div class="flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-all">' +
+                '<div class="flex items-center gap-4">' +
+                    '<div class="w-10 h-10 rounded-full ' + activeClass + ' flex items-center justify-center">' +
+                        '<svg class="w-5 h-5 ' + activeTextClass + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>' +
+                    '</div>' +
+                    '<div>' +
+                        '<p class="font-semibold text-slate-900">' + escapeHtml(s.name) + '</p>' +
+                        '<p class="text-sm text-slate-500">IP: ' + escapeHtml(s.ip) + '</p>' +
+                        '<p class="text-xs text-slate-400">Logged in: ' + formatDate(s.loginTime) + '</p>' +
+                        '<p class="text-xs text-blue-500 font-mono">Token: ' + (s.token ? s.token.substring(0, 16) + '...' : 'N/A') + '</p>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="flex items-center gap-2">' +
+                    statusBadge +
+                    revokeBtn +
+                    '<button onclick="deleteSession(' + s.id + ')" class="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-all">' +
+                        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>' +
+                    '</button>' +
+                '</div>' +
+            '</div>';
+        }
+        
+        if (container) container.innerHTML = html;
+        if (healthContainer) healthContainer.innerHTML = html;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return 'Unknown';
+        const date = new Date(dateStr);
+        return date.toLocaleString();
+    }
+
+    async function revokeSession(id) {
+        if (!confirm('Are you sure you want to revoke this session?')) return;
+        try {
+            const resp = await fetch('/admin/api/sessions/revoke/' + id, {
+                method: 'POST',
+                credentials: 'same-origin'
+            });
+            if (!resp.ok) throw new Error('Failed to revoke session');
+            showToast('Session revoked successfully', 'success');
+            loadSessions();
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    async function deleteSession(id) {
+        if (!confirm('Are you sure you want to delete this session?')) return;
+        try {
+            // First revoke the session
+            await fetch('/admin/api/sessions/revoke/' + id, {
+                method: 'POST',
+                credentials: 'same-origin'
+            });
+            
+            // Then delete the session
+            const resp = await fetch('/admin/api/sessions/' + id, {
+                method: 'DELETE',
+                credentials: 'same-origin'
+            });
+            const data = await resp.json();
+            
+            if (data.isCurrentSession) {
+                showToast('Your session has been revoked', 'warning');
+                setTimeout(() => window.location.href = '/admin/login', 1500);
+            } else {
+                showToast('Session deleted successfully', 'success');
+                loadSessions();
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
     }
 
     // Run maintenance tasks
@@ -912,6 +1107,7 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
 
     // Initialize settings on load
     loadSettings();
+    loadSessions();
 
     // Fetch system status periodically to keep sidebar updated
     setInterval(async () => {
@@ -950,7 +1146,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         document.getElementById('tab-settings').className = tab === 'settings' ? 'px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active' : 'px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all';
         document.getElementById('main-title').innerText = tab === 'health' ? 'System Health' : tab === 'analytics' ? 'Data Insights' : 'Settings';
         if(tab === 'analytics') setTimeout(renderCharts, 100);
-        if(tab === 'settings') loadServerInfo();
+        if(tab === 'settings') { loadServerInfo(); loadSessions(); }
+        if(tab === 'health') loadSessions();
     }
 
     function renderCharts() {
@@ -1500,6 +1697,73 @@ router.post('/api/system-status', express.json(), requireAdmin, (req, res) => {
         });
     } catch (err) {
         return res.status(500).json({ error: 'Failed to update system status' });
+    }
+});
+
+/* =========================================================
+     ADMIN: Session Management API
+     - GET /admin/api/sessions -> returns all admin sessions
+     - POST /admin/api/sessions/revoke/:id -> revokes a session
+     - DELETE /admin/api/sessions/:id -> deletes a session
+========================================================== */
+router.get('/api/sessions', requireAdmin, (req, res) => {
+    try {
+        const sessions = Array.from(adminSessions.values()).map(s => ({
+            id: s.id,
+            name: s.name,
+            ip: s.ip,
+            loginTime: s.loginTime,
+            lastActive: s.lastActive,
+            active: s.active
+        }));
+        res.json({ sessions });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to get sessions' });
+    }
+});
+
+router.post('/api/sessions/revoke/:id', express.json(), requireAdmin, (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id, 10);
+        const session = adminSessions.get(sessionId);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+        session.active = false;
+        session.revokedAt = new Date().toISOString();
+        adminSessions.set(sessionId, session);
+        res.json({ success: true, message: 'Session revoked successfully' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to revoke session' });
+    }
+});
+
+router.delete('/api/sessions/:id', requireAdmin, (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.id, 10);
+        const session = adminSessions.get(sessionId);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+        
+        // Check if this is the current user's session by comparing tokens
+        // Get the current admin token from cookie
+        const isCurrentSession = session.token === req.cookies?.admin_token;
+        
+        // Revoke the session first
+        session.active = false;
+        session.revokedAt = new Date().toISOString();
+        
+        // Delete the session
+        adminSessions.delete(sessionId);
+        
+        res.json({ 
+            success: true, 
+            message: 'Session deleted successfully',
+            isCurrentSession: isCurrentSession
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete session' });
     }
 });
 

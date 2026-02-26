@@ -44,5 +44,6 @@
   "/api/option-capacities": true,
   "/api/option-quota-buckets": true,
   "/api/user-roles": true,
-  "/admin/generated/group/:id": true
+  "/admin/generated/group/:id": true,
+  "/admin/generated/group/": true
 }
