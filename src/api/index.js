@@ -15,6 +15,7 @@ const { requestLogger, notFound, errorHandler, apiGatekeeper } = require('../mid
 app.use(requestLogger);
 
 // Route modules
+const authRoutes = require('../routes/authRoutes');
 const userRoutes = require('../routes/userRoutes');
 const groupRoutes = require('../routes/groupRoutes');
 const relayStageActionRoutes = require('../routes/relayStageActionRoutes');
@@ -66,6 +67,9 @@ try {
 // Swagger UI route (API docs)
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.get('/api/docs.json', (req, res) => res.json(swaggerDocument));
+
+// Auth routes (login/logout) - mounted before gatekeeper
+app.use('/api/auth', authRoutes);
 
 // Gatekeeper: block/allow API routes based on admin toggles and feature flags
 app.use('/api', apiGatekeeper);

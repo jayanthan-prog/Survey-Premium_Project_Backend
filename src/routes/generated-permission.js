@@ -2,8 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../models');
 const { requireAdmin } = require('../middleware');
-const Model = db['User'];
-const allowedFields = ["user_id","name","email","created_at"];
+const Model = db['Permission'];
+const allowedFields = ["permission_id"];
 
 function pickAllowed(obj) {
   const out = {};
@@ -13,7 +13,7 @@ function pickAllowed(obj) {
 }
 
 // List
-router.get('/generated/user/', requireAdmin, async (req, res) => {
+router.get('/generated/permission/', requireAdmin, async (req, res) => {
   try {
     const rows = await Model.findAll({ attributes: allowedFields.length ? allowedFields : undefined, limit: 100 });
     res.json(rows);
@@ -21,7 +21,7 @@ router.get('/generated/user/', requireAdmin, async (req, res) => {
 });
 
 // Get by PK
-router.get('/generated/user/:id', requireAdmin, async (req, res) => {
+router.get('/generated/permission/:id', requireAdmin, async (req, res) => {
   try {
     const r = await Model.findByPk(req.params.id, { attributes: allowedFields.length ? allowedFields : undefined });
     if (!r) return res.status(404).json({ error: 'Not found' });
@@ -30,7 +30,7 @@ router.get('/generated/user/:id', requireAdmin, async (req, res) => {
 });
 
 // Create
-router.post('/generated/user/', requireAdmin, express.json(), async (req, res) => {
+router.post('/generated/permission/', requireAdmin, express.json(), async (req, res) => {
   try {
     const payload = pickAllowed(req.body || {});
     const created = await Model.create(payload);
@@ -39,7 +39,7 @@ router.post('/generated/user/', requireAdmin, express.json(), async (req, res) =
 });
 
 // Update
-router.put('/generated/user/:id', requireAdmin, express.json(), async (req, res) => {
+router.put('/generated/permission/:id', requireAdmin, express.json(), async (req, res) => {
   try {
     const item = await Model.findByPk(req.params.id);
     if (!item) return res.status(404).json({ error: 'Not found' });
@@ -50,7 +50,7 @@ router.put('/generated/user/:id', requireAdmin, express.json(), async (req, res)
 });
 
 // Delete
-router.delete('/generated/user/:id', requireAdmin, async (req, res) => {
+router.delete('/generated/permission/:id', requireAdmin, async (req, res) => {
   try {
     const item = await Model.findByPk(req.params.id);
     if (!item) return res.status(404).json({ error: 'Not found' });

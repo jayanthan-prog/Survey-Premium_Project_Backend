@@ -4,14 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('relay_stage_actions', {
       relay_stage_action_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         primaryKey: true,
         defaultValue: Sequelize.UUIDV4,
       },
 
       relay_stage_id: {
-        type: Sequelize.UUID, // Must match relay_stages.relay_stage_id
+        type: Sequelize.BIGINT, // Must match relay_stages.relay_stage_id
         allowNull: false,
         references: {
           model: 'relay_stages',

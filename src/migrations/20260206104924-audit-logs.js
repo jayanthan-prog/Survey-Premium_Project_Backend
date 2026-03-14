@@ -6,14 +6,14 @@ module.exports = {
       'audit_logs',
       {
         audit_log_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           primaryKey: true,
           defaultValue: Sequelize.UUIDV4,
         },
 
         actor_user_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: true,
           references: {
             model: 'users',
@@ -29,7 +29,7 @@ module.exports = {
         },
 
         entity_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: true,
         },
 

@@ -53,6 +53,69 @@ exports.listUsers = async (req, res, next) => {
   }
 };
 
+// GET /api/admin/users/:id - Get single user by ID
+exports.getUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const User = db.User;
+    if (!User) return res.status(500).json({ error: 'User model not found' });
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(user);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PUT /api/admin/users/:id - Update user
+exports.updateUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, email } = req.body;
+    const User = db.User;
+    if (!User) return res.status(500).json({ error: 'User model not found' });
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update fields if provided
+    if (name !== undefined) user.name = name;
+    if (email !== undefined) user.email = email;
+
+    await user.save();
+
+    res.json(user);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// DELETE /api/admin/users/:id - Delete user
+exports.deleteUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const User = db.User;
+    if (!User) return res.status(500).json({ error: 'User model not found' });
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await user.destroy();
+
+    res.json({ message: 'User deleted successfully', user_id: id });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // GET /api/admin/surveys?page=&limit=
 exports.listSurveys = async (req, res, next) => {
   try {

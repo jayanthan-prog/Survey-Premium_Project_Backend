@@ -6,7 +6,7 @@ module.exports = {
       'role_permissions',
       {
         role_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: { model: 'roles', key: 'role_id' },
           onDelete: 'CASCADE',
@@ -14,7 +14,7 @@ module.exports = {
         },
 
         permission_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: { model: 'permissions', key: 'permission_id' },
           onDelete: 'CASCADE',

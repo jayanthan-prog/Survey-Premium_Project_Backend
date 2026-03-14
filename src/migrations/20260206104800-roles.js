@@ -6,7 +6,7 @@ module.exports = {
       'roles',
       {
         role_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           primaryKey: true,
           defaultValue: Sequelize.UUIDV4,

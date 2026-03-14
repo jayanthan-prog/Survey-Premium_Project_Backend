@@ -44,6 +44,17 @@
   "/api/option-capacities": true,
   "/api/option-quota-buckets": true,
   "/api/user-roles": true,
-  "/admin/generated/group/:id": true,
-  "/admin/generated/group/": true
+  "/admin/generated/group/:id": false,
+  "/admin/generated/group/": true,
+  "/admin/generated/permission/": false,
+  "/admin/generated/permission/:id": false,
+  "/api/test": false,
+  "/admin/generated/authtoken/": true,
+  "/admin/generated/authtoken/:id": false,
+  "/admin/generated/optionquotabucket/:id": true,
+  "/admin/generated/user/": true,
+  "/admin/generated/surveyrelease/": false,
+  "/admin/generated/surveyrelease/:id": true,
+  "/admin/generated/relayinstance/": true,
+  "/admin/generated/relayinstance/:id": false
 }

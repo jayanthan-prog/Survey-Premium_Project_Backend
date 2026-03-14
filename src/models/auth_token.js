@@ -4,12 +4,12 @@ const sequelize = require('../config/database');
 
 const AuthToken = sequelize.define('AuthToken', {
   auth_token_id: {
-    type: DataTypes.CHAR(36),
+    type: DataTypes.BIGINT,
     primaryKey: true,
-    defaultValue: DataTypes.UUIDV4,
+    autoIncrement: true,
   },
   user_id: {
-    type: DataTypes.CHAR(36),
+    type: DataTypes.BIGINT,
     allowNull: false,
   },
   token_hash: {

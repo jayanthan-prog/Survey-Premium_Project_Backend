@@ -20,14 +20,14 @@ exports.login = async (req, res, next) => {
 
     const created = await AuthToken.create({
       user_id: user.user_id,
-      token,
+      token_hash: token,
       token_type: 'bearer',
       expires_at: expiresAt,
       revoked_at: null,
     });
 
     return res.json({
-      token: created.token,
+      token: token,
       token_type: created.token_type,
       expires_at: created.expires_at,
       user_id: created.user_id,

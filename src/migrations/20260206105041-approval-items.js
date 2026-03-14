@@ -6,14 +6,14 @@ module.exports = {
       'approval_items',
       {
         approval_item_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           primaryKey: true,
           defaultValue: Sequelize.UUIDV4,
         },
 
         approval_workflow_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'approval_workflows',
@@ -24,7 +24,7 @@ module.exports = {
         },
 
         approval_step_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: true,
           references: {
             model: 'approval_steps',
@@ -40,7 +40,7 @@ module.exports = {
         },
 
         entity_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
         },
 
@@ -51,7 +51,7 @@ module.exports = {
         },
 
         decided_by: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: true,
           references: {
             model: 'users',

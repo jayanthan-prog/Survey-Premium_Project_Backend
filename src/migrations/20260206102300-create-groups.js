@@ -4,7 +4,7 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('groups', {
       group_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         primaryKey: true,
         defaultValue: Sequelize.UUIDV4, // ✅ Safe UUID generation

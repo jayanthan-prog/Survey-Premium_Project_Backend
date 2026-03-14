@@ -4,14 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('survey_options', {
       option_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         primaryKey: true,
         defaultValue: Sequelize.UUIDV4,
       },
 
       survey_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         references: {
           model: 'surveys',
@@ -22,7 +22,7 @@ module.exports = {
       },
 
       parent_option_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: true,
         references: {
           model: 'survey_options',

@@ -4,14 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('calendar_slots', {
       calendar_slot_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         primaryKey: true,
         defaultValue: Sequelize.UUIDV4,
       },
 
       survey_id: {
-        type: Sequelize.UUID, // Must match surveys.survey_id
+        type: Sequelize.BIGINT, // Must match surveys.survey_id
         allowNull: false,
         references: {
           model: 'surveys',

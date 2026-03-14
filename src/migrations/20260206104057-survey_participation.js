@@ -6,14 +6,14 @@ module.exports = {
       'survey_participation',
       {
         participation_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           primaryKey: true,
           defaultValue: Sequelize.UUIDV4,
         },
 
         release_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'survey_releases', // adjust if different
@@ -24,7 +24,7 @@ module.exports = {
         },
 
         user_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'users',

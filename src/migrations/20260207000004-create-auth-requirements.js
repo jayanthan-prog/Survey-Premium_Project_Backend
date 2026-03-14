@@ -2,8 +2,8 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('option_capacity', {
-      capacity_id: {
+    await queryInterface.createTable('auth_requirements', {
+      auth_req_id: {
         type: Sequelize.BIGINT,
         allowNull: false,
         primaryKey: true,
@@ -23,29 +23,25 @@ module.exports = {
 
       option_id: {
         type: Sequelize.BIGINT,
-        allowNull: false,
+        allowNull: true,
         references: {
           model: 'survey_options',
           key: 'option_id',
         },
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE',
+        comment: 'If null, applies to entire survey; if set, applies to specific option',
       },
 
-      capacity_total: {
-        type: Sequelize.INTEGER,
+      required_before: {
+        type: Sequelize.ENUM('OPEN', 'SUBMIT', 'APPROVE', 'CONFIRM'),
         allowNull: false,
+        comment: 'When must this auth be completed?',
       },
 
-      waitlist_enabled: {
-        type: Sequelize.BOOLEAN,
+      method: {
+        type: Sequelize.ENUM('OTP_EMAIL', 'OTP_SMS', 'CODE', 'QR', 'MANUAL'),
         allowNull: false,
-        defaultValue: true,
-      },
-
-      hold_seconds: {
-        type: Sequelize.INTEGER,
-        allowNull: true,
       },
 
       created_at: {
@@ -57,9 +53,7 @@ module.exports = {
       updated_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal(
-          'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
-        ),
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
       },
     }, {
       engine: 'InnoDB',
@@ -67,22 +61,10 @@ module.exports = {
       collate: 'utf8mb4_unicode_ci',
     });
 
-    // Unique per release + option
-    await queryInterface.addConstraint('option_capacity', {
-      fields: ['release_id', 'option_id'],
-      type: 'unique',
-      name: 'uniq_capacity_release_option',
-    });
-
-    // Helpful index
-    await queryInterface.addIndex(
-      'option_capacity',
-      ['release_id'],
-      { name: 'idx_capacity_release' }
-    );
+    await queryInterface.addIndex('auth_requirements', ['release_id', 'required_before'], { name: 'idx_auth_req_release_before' });
   },
 
-  async down(queryInterface) {
-    await queryInterface.dropTable('option_capacity');
+  async down(queryInterface, Sequelize) {
+    await queryInterface.dropTable('auth_requirements');
   },
 };

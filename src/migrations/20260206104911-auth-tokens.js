@@ -6,14 +6,14 @@ module.exports = {
       'auth_tokens',
       {
         auth_token_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           primaryKey: true,
           defaultValue: Sequelize.UUIDV4,
         },
 
         user_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'users',

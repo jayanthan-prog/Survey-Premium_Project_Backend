@@ -6,7 +6,7 @@ module.exports = {
       'user_roles',
       {
         user_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'users',
@@ -17,7 +17,7 @@ module.exports = {
         },
 
         role_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'roles',

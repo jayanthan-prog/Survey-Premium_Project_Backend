@@ -6,14 +6,14 @@ module.exports = {
       'survey_answer_selections',
       {
         selection_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           primaryKey: true,
           defaultValue: Sequelize.UUIDV4,
         },
 
         answer_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'survey_answers',
@@ -24,7 +24,7 @@ module.exports = {
         },
 
         question_option_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'survey_question_options',

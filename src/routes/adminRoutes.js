@@ -2,12 +2,17 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
 const { requireAdmin } = require('../middleware');
+const genController = require('../controllers/generatedApiController');
+const featureFlags = require('../featureFlags');
 
 // All admin routes are protected by requireAdmin
 router.use(requireAdmin);
 
 router.get('/metrics', adminController.getMetrics);
 router.get('/users', adminController.listUsers);
+router.get('/users/:id', adminController.getUser);
+router.put('/users/:id', adminController.updateUser);
+router.delete('/users/:id', adminController.deleteUser);
 router.get('/surveys', adminController.listSurveys);
 router.get('/audit-logs', adminController.listAuditLogs);
 router.get('/status', adminController.getStatus);
@@ -16,7 +21,7 @@ router.get('/status', adminController.getStatus);
 // 🔥 LIVE API STATUS ENDPOINT
 // ===============================
 
-const API_LIST = [
+const BASE_API_LIST = [
   "/api/users",
   "/api/groups",
   "/api/relay-stage-actions",
@@ -50,15 +55,36 @@ const API_LIST = [
   "/api/survey-sessions"
 ];
 
+// Get API list including generated APIs (always active by default)
+function getApiList() {
+  const generated = genController.listGenerated();
+  const generatedPaths = Object.keys(generated).map(key => {
+    const lower = key.toLowerCase();
+    return '/admin/generated/' + lower + '/';
+  });
+  return [...BASE_API_LIST, ...generatedPaths];
+}
+
+const API_LIST = getApiList();
+
 // LIVE STATUS PROVIDER FOR DASHBOARD
 router.get('/api-status', async (req, res) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const apiList = getApiList(); // Get fresh list including any newly generated APIs
+  
+  // Get admin key for authenticated status checks
+  const adminKey = process.env.ADMIN_API_KEY || '';
+  const fetchOptions = adminKey ? {
+    headers: { 'X-Admin-Key': adminKey }
+  } : {};
 
   const results = await Promise.all(
-    API_LIST.map(async (api) => {
+    apiList.map(async (api) => {
       const start = Date.now();
       try {
-        const r = await fetch(baseUrl + api); // ✅ Uses built-in fetch
+        // Use admin key for generated APIs (which are admin-only)
+        const options = api.includes('/admin/generated/') ? fetchOptions : {};
+        const r = await fetch(baseUrl + api, options);
         const time = Date.now() - start;
 
         return {

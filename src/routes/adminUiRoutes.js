@@ -1,4 +1,4 @@
-    const express = require('express');
+const express = require('express');
 const router = express.Router();
 const path = require('path');
 const crypto = require('crypto');
@@ -7,18 +7,16 @@ const { requireAdmin, apiControl } = require('../middleware');
 const featureFlags = require('../featureFlags');
 const serverMeta = require('../serverMeta');
 const genController = require('../controllers/generatedApiController');
-// In-memory registry of generated model routes to avoid duplicate registration
-const _generatedModels = {};
+ const _generatedModels = {};
 
-// Admin login sessions storage
-const adminSessions = new Map();
+ const adminSessions = new Map();
 let sessionIdCounter = 1;
 
-/*=========================================================
+/*======================================================================
    ADMIN LOGIN PAGE
-=========================================================*/
+========================================================================*/
 router.get('/login', (req, res) => {
-  res.send(`
+    res.send(`
 <!doctype html>
 <html lang="en">
 <head>
@@ -31,11 +29,11 @@ router.get('/login', (req, res) => {
     .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); }
   </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
-  <div class="glass w-full max-w-md p-10 rounded-3xl shadow-2xl">
+<body class="min-h-screen flex items-center justify-center p-4 sm:p-6">
+  <div class="glass w-full max-w-sm sm:max-w-md p-6 sm:p-10 rounded-2xl sm:rounded-3xl shadow-2xl">
     <div class="text-center mb-10">
         <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-6 shadow-xl shadow-blue-500/20 text-white font-bold text-2xl">S</div>
-        <h1 class="text-3xl font-bold text-white tracking-tight">Console Access</h1>
+        <h1 class="text-2xl sm:text-3xl font-bold text-white tracking-tight">Console Access</h1>
         <p class="text-slate-400 mt-2">Authorized Personnel Only</p>
     </div>
         <form method="post" action="/admin/login" class="space-y-6" aria-label="Admin login form">
@@ -66,22 +64,22 @@ router.get('/login', (req, res) => {
 ========================================================= */
 router.post('/login', express.urlencoded({ extended: false }), async (req, res) => {
     try {
-      const { token } = req.body || {};
-      const adminKey = (process.env.ADMIN_API_KEY || '').trim();
+        const { token } = req.body || {};
+        const adminKey = (process.env.ADMIN_API_KEY || '').trim();
 
-      if (!token || token !== adminKey) {
-        return res.status(401).send(`<div style="background:#0f172a;color:white;height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">
+        if (!token || token !== adminKey) {
+            return res.status(401).send(`<div style="background:#0f172a;color:white;height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">
             <div style="text-align:center;"><h2 style="color:#ef4444;">Access Denied</h2><br><a href="/admin/login" style="color:#3b82f6;">Back to Login</a></div>
         </div>`);
-      }
-    
-    // Set admin cookie to expire in 1 hour (3600 seconds). Add Secure when running under HTTPS/production.
-    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production';
-    const secureFlag = isSecure ? '; Secure' : '';
-    res.setHeader('Set-Cookie', `admin_token=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=3600; SameSite=Lax${secureFlag}`);
-      return res.redirect('/admin/dashboard');
+        }
+
+        // Set admin cookie to expire in 1 hour (3600 seconds). Add Secure when running under HTTPS/production.
+        const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production';
+        const secureFlag = isSecure ? '; Secure' : '';
+        res.setHeader('Set-Cookie', `admin_token=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=3600; SameSite=Lax${secureFlag}`);
+        return res.redirect('/admin/dashboard');
     } catch (err) {
-      return res.status(500).send('Server Error');
+        return res.status(500).send('Server Error');
     }
 });
 
@@ -89,181 +87,288 @@ router.post('/login', express.urlencoded({ extended: false }), async (req, res) 
    DASHBOARD
 ========================================================= */
 router.get('/dashboard', requireAdmin, async (req, res, next) => {
-  try {
-    const [u, s, p, a, b, l] = await Promise.all([
-      db.User?.count() || 0,
-      db.Survey?.count() || 0,
-      db.SurveyParticipant?.count() || db.Survey_Participant?.count() || 0,
-      db.SurveyAnswer?.count() || db.Survey_Answer?.count() || 0,
-      db.SlotBooking?.count() || 0,
-      db.AuditLog?.count() || 0
-    ]);
+    try {
+        const [u, s, p, a, b, l] = await Promise.all([
+            db.User?.count() || 0,
+            db.Survey?.count() || 0,
+            db.SurveyParticipant?.count() || db.Survey_Participant?.count() || 0,
+            db.SurveyAnswer?.count() || db.Survey_Answer?.count() || 0,
+            db.SlotBooking?.count() || 0,
+            db.AuditLog?.count() || 0
+        ]);
 
-    // Get initial system status
-    const systemStatus = serverMeta.getSystemStatus();
-    const uptime = serverMeta.getUptimeSeconds();
-    const sysInfo = serverMeta.systemInfo();
-    
-    // Format uptime
-    const days = Math.floor(uptime / 86400);
-    const hours = Math.floor((uptime % 86400) / 3600);
-    const minutes = Math.floor((uptime % 3600) / 60);
-    const formattedUptime = `${days}d ${hours}h ${minutes}m`;
+        // Get initial system status
+        const systemStatus = serverMeta.getSystemStatus();
+        const uptime = serverMeta.getUptimeSeconds();
+        const sysInfo = serverMeta.systemInfo();
 
-    res.send(`
+        // Format uptime
+        const days = Math.floor(uptime / 86400);
+        const hours = Math.floor((uptime % 86400) / 3600);
+        const minutes = Math.floor((uptime % 3600) / 60);
+        const formattedUptime = `${days}d ${hours}h ${minutes}m`;
+
+        res.send(`
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Analytics | Survey Premium</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css">
   <script src="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0"></script>
   <style>
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #1e293b; }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #1e293b; overflow-x: hidden; }
     .custom-scrollbar::-webkit-scrollbar { width: 6px; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
     .tab-active { background: #eff6ff; color: #2563eb; border-bottom: 2px solid #2563eb; }
-    .chart-container { position: relative; height: 300px; width: 100%; }
-    .toggle-checkbox:checked {
-      right: 0;
-      border-color: #68D391;
+    .chart-container { position: relative; height: 240px; width: 100%; }
+    @media (min-width: 768px) { .chart-container { height: 300px; } }
+    .toggle-checkbox:checked { right: 0; border-color: #68D391; }
+    .toggle-checkbox:checked + .toggle-label { background-color: #68D391; }
+    /* Mobile sidebar */
+    #mobile-sidebar { transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+    #mobile-sidebar.open { transform: translateX(0); }
+    #sidebar-overlay { opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+    #sidebar-overlay.open { opacity: 1; pointer-events: all; }
+    /* Mobile top bar */
+    #mobile-topbar { display: flex; }
+    @media (min-width: 1024px) { #mobile-topbar { display: none; } }
+    /* Bottom nav */
+    #bottom-nav { display: flex; }
+    @media (min-width: 1024px) { #bottom-nav { display: none; } }
+    /* Smooth tab transitions */
+    .tab-section { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    /* Touch targets */
+    @media (max-width: 1023px) {
+      button, a { min-height: 40px; }
+      .main-content { padding-bottom: 80px !important; }
     }
-    .toggle-checkbox:checked + .toggle-label {
-      background-color: #68D391;
+    /* Additional mobile responsive styles */
+    @media (max-width: 640px) {
+      .p-5, .p-6 { padding: 0.75rem !important; }
+      .text-3xl { font-size: 1.5rem; }
+      .text-2xl { font-size: 1.25rem; }
+      .gap-4 { gap: 0.5rem; }
+      .rounded-2xl, .rounded-3xl { border-radius: 1rem; }
     }
   </style>
 </head>
 <body class="flex min-h-screen">
-  <aside class="w-64 bg-[#0f172a] text-slate-400 hidden lg:flex flex-col sticky top-0 h-screen shadow-2xl">
-    <div class="p-6 border-b border-slate-800 flex items-center gap-3">
-        <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white flex items-center justify-center font-bold shadow-lg shadow-blue-500/30">S</div>
+
+  <!-- SIDEBAR OVERLAY (mobile) -->
+  <div id="sidebar-overlay" onclick="closeSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"></div>
+
+  <!-- MOBILE SIDEBAR -->
+  <aside id="mobile-sidebar" class="fixed top-0 left-0 w-64 sm:w-72 bg-[#0f172a] text-slate-400 flex flex-col h-screen shadow-2xl z-50 lg:hidden">
+    <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white flex items-center justify-center font-bold shadow-lg">S</div>
         <span class="text-white font-bold tracking-tight">Admin Console</span>
+      </div>
+      <button onclick="closeSidebar()" class="p-2 hover:bg-slate-800 rounded-xl transition-all">
+        <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
     </div>
-    
-    <!-- Quick Stats Mini Panel -->
-    <div class="px-4 py-3 mx-4 mb-4 bg-gradient-to-r from-slate-800/50 to-slate-900/50 rounded-xl border border-slate-700/50">
-        <div class="flex items-center gap-2 mb-2">
-            <div id="systemStatusDot" class="w-2 h-2 rounded-full ${systemStatus.isOnline !== false ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}"></div>
-            <span id="systemStatusText" class="text-xs font-semibold ${systemStatus.isOnline !== false ? 'text-emerald-400' : 'text-red-400'}">${systemStatus.isOnline !== false ? 'System Online' : 'System Offline'}</span>
-        </div>
-        <div class="text-xs text-slate-500">
-            <span id="serverUptime">${formattedUptime}</span>
-        </div>
+    <div class="px-4 py-3 mx-4 mb-2 mt-3 bg-gradient-to-r from-slate-800/50 to-slate-900/50 rounded-xl border border-slate-700/50">
+      <div class="flex items-center gap-2 mb-1">
+        <div id="systemStatusDot" class="w-2 h-2 rounded-full ${systemStatus.isOnline !== false ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}"></div>
+        <span id="systemStatusText" class="text-xs font-semibold ${systemStatus.isOnline !== false ? 'text-emerald-400' : 'text-red-400'}">${systemStatus.isOnline !== false ? 'System Online' : 'System Offline'}</span>
+      </div>
+      <div class="text-xs text-slate-500"><span id="serverUptime">${formattedUptime}</span></div>
     </div>
-    
     <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
-        <div class="text-xs font-bold text-slate-600 uppercase tracking-wider px-4 mb-2">Main</div>
-        <button onclick="switchTab('health')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
-            <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-            Health Monitor
-        </button>
-        <button onclick="switchTab('analytics')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
-            <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
-            Data Insights
-        </button>
-        <button onclick="switchTab('settings')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
-            <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            Settings
-        </button>
-        
-        <div class="text-xs font-bold text-slate-600 uppercase tracking-wider px-4 mb-2 mt-6">Quick Actions</div>
-        <a href="/api/users" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
-            <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-            View Users
+      <div class="text-xs font-bold text-slate-600 uppercase tracking-wider px-4 mb-2">Main</div>
+      <button onclick="switchTab('health');closeSidebar()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+        Health Monitor
+      </button>
+      <button onclick="switchTab('analytics');closeSidebar()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+        Data Insights
+      </button>
+      <button onclick="switchTab('settings');closeSidebar()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        Settings
+      </button>
+      <div class="text-xs font-bold text-slate-600 uppercase tracking-wider px-4 mb-2 mt-5">Quick Actions</div>
+      <a href="/api/users" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+        View Users
+      </a>
+      <a href="/api/surveys" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        View Surveys
+      </a>
+      <a href="/api/docs" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+        API Docs
+      </a>
+      <div class="mt-6 pt-4 border-t border-slate-800">
+        <a href="/admin/logout" class="flex items-center gap-3 px-4 py-3 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-all">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v-1a3 3 0 00-3-3h-4a3 3 0 00-3 3v1"></path></svg>
+          Logout
         </a>
-        <a href="/api/surveys" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
-            <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-            View Surveys
-        </a>
-        <a href="/api/docs" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
-            <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
-            API Docs
-        </a>
-        
-        <div class="mt-auto pt-4 border-t border-slate-800">
-            <a href="/admin/logout" class="flex items-center gap-3 px-4 py-3 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-all group">
-                <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v-1a3 3 0 00-3-3h-4a3 3 0 00-3 3v1"></path></svg>
-                Logout
-            </a>
-        </div>
+      </div>
     </nav>
   </aside>
 
-  <main class="flex-1 p-8 overflow-y-auto">
-    <div class="max-w-7xl mx-auto">
-        <header class="flex justify-between items-end mb-10">
-            <div>
-                <h1 class="text-4xl font-extrabold text-slate-900 tracking-tight" id="main-title">System Overview</h1>
-                <p class="text-slate-500 font-medium mt-1">Real-time database and service analytics.</p>
-            </div>
-            <div class="flex bg-white p-1.5 border border-slate-200 rounded-2xl shadow-sm">
+  <!-- DESKTOP SIDEBAR -->
+  <aside class="w-64 bg-[#0f172a] text-slate-400 hidden lg:flex flex-col sticky top-0 h-screen shadow-2xl flex-shrink-0">
+    <div class="p-6 border-b border-slate-800 flex items-center gap-3">
+      <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white flex items-center justify-center font-bold shadow-lg shadow-blue-500/30">S</div>
+      <span class="text-white font-bold tracking-tight">Admin Console</span>
+    </div>
+    <div class="px-4 py-3 mx-4 mb-4 bg-gradient-to-r from-slate-800/50 to-slate-900/50 rounded-xl border border-slate-700/50">
+      <div class="flex items-center gap-2 mb-2">
+        <div id="systemStatusDotDesktop" class="w-2 h-2 rounded-full ${systemStatus.isOnline !== false ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}"></div>
+        <span id="systemStatusTextDesktop" class="text-xs font-semibold ${systemStatus.isOnline !== false ? 'text-emerald-400' : 'text-red-400'}">${systemStatus.isOnline !== false ? 'System Online' : 'System Offline'}</span>
+      </div>
+      <div class="text-xs text-slate-500"><span id="serverUptimeDesktop">${formattedUptime}</span></div>
+    </div>
+    <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
+      <div class="text-xs font-bold text-slate-600 uppercase tracking-wider px-4 mb-2">Main</div>
+      <button onclick="switchTab('health')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
+        <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+        Health Monitor
+      </button>
+      <button onclick="switchTab('analytics')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
+        <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+        Data Insights
+      </button>
+      <button onclick="switchTab('settings')" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
+        <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        Settings
+      </button>
+      <div class="text-xs font-bold text-slate-600 uppercase tracking-wider px-4 mb-2 mt-6">Quick Actions</div>
+      <a href="/api/users" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
+        <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+        View Users
+      </a>
+      <a href="/api/surveys" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
+        <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        View Surveys
+      </a>
+      <a href="/api/docs" target="_blank" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 hover:text-white rounded-xl transition-all font-semibold text-left group">
+        <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+        API Docs
+      </a>
+      <div class="mt-auto pt-4 border-t border-slate-800">
+        <a href="/admin/logout" class="flex items-center gap-3 px-4 py-3 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-all group">
+          <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v-1a3 3 0 00-3-3h-4a3 3 0 00-3 3v1"></path></svg>
+          Logout
+        </a>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- MOBILE TOP BAR -->
+  <div id="mobile-topbar" class="fixed top-0 left-0 right-0 h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 z-30 shadow-sm lg:hidden">
+    <button onclick="openSidebar()" class="p-2 hover:bg-slate-100 rounded-xl transition-all" aria-label="Open menu">
+      <svg class="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    </button>
+    <div class="flex items-center gap-2">
+      <div class="w-7 h-7 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white flex items-center justify-center font-bold text-sm">S</div>
+      <span class="font-bold text-slate-900 text-sm">Admin Console</span>
+    </div>
+    <a href="/admin/logout" class="p-2 hover:bg-red-50 rounded-xl transition-all" aria-label="Logout">
+      <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v-1a3 3 0 00-3-3h-4a3 3 0 00-3 3v1"></path></svg>
+    </a>
+  </div>
+
+  <main class="flex-1 overflow-y-auto">
+    <!-- Spacer for mobile top bar -->
+    <div class="h-14 lg:hidden"></div>
+    <div class="main-content max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="mb-6 lg:mb-10">
+            <div class="flex justify-between items-start lg:items-end gap-4">
+              <div>
+                <h1 class="text-2xl lg:text-4xl font-extrabold text-slate-900 tracking-tight" id="main-title">System Overview</h1>
+                <p class="text-slate-500 font-medium mt-1 text-sm lg:text-base">Real-time database and service analytics.</p>
+              </div>
+              <!-- Desktop tab switcher -->
+              <div class="hidden lg:flex bg-white p-1.5 border border-slate-200 rounded-2xl shadow-sm flex-shrink-0">
                 <button onclick="switchTab('health')" id="tab-health" class="px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active">Health</button>
                 <button onclick="switchTab('analytics')" id="tab-analytics" class="px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all">Analytics</button>
                 <button onclick="switchTab('settings')" id="tab-settings" class="px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all">Settings</button>
+              </div>
+              <!-- Mobile tab switcher (compact) -->
+              <div class="flex lg:hidden bg-white p-1 border border-slate-200 rounded-xl shadow-sm flex-shrink-0">
+                <button onclick="switchTab('health')" id="tab-health-mob" class="px-3 py-1.5 text-xs font-bold rounded-lg transition-all tab-active">Health</button>
+                <button onclick="switchTab('analytics')" id="tab-analytics-mob" class="px-3 py-1.5 text-xs font-bold text-slate-500 rounded-lg transition-all">Analytics</button>
+                <button onclick="switchTab('settings')" id="tab-settings-mob" class="px-3 py-1.5 text-xs font-bold text-slate-500 rounded-lg transition-all">Settings</button>
+              </div>
             </div>
         </header>
 
-        <div class="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
-            <div class="bg-gradient-to-br from-blue-50 to-blue-100/50 p-5 rounded-2xl border border-blue-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
-                <div class="flex items-center justify-between mb-2">
-                    <p class="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Users</p>
-                    <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 lg:gap-4 mb-6 lg:mb-8">
+            <div class="bg-gradient-to-br from-blue-50 to-blue-100/50 p-3 lg:p-5 rounded-2xl border border-blue-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
+                <div class="flex items-center justify-between mb-1 lg:mb-2">
+                    <p class="text-[9px] font-bold text-blue-500 uppercase tracking-widest">Users</p>
+                    <div class="w-6 h-6 lg:w-8 lg:h-8 bg-blue-500 rounded-lg flex items-center justify-center shadow-md">
+                        <svg class="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                     </div>
                 </div>
-                <p class="text-3xl font-extrabold text-slate-900">${u}</p>
+                <p class="text-xl lg:text-3xl font-extrabold text-slate-900">${u}</p>
             </div>
-            <div class="bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-5 rounded-2xl border border-emerald-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
-                <div class="flex items-center justify-between mb-2">
-                    <p class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Surveys</p>
-                    <div class="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <div class="bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-3 lg:p-5 rounded-2xl border border-emerald-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
+                <div class="flex items-center justify-between mb-1 lg:mb-2">
+                    <p class="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">Surveys</p>
+                    <div class="w-6 h-6 lg:w-8 lg:h-8 bg-emerald-500 rounded-lg flex items-center justify-center shadow-md">
+                        <svg class="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                     </div>
                 </div>
-                <p class="text-3xl font-extrabold text-slate-900">${s}</p>
+                <p class="text-xl lg:text-3xl font-extrabold text-slate-900">${s}</p>
             </div>
-            <div class="bg-gradient-to-br from-indigo-50 to-indigo-100/50 p-5 rounded-2xl border border-indigo-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
-                <div class="flex items-center justify-between mb-2">
-                    <p class="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Participants</p>
-                    <div class="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+            <div class="bg-gradient-to-br from-indigo-50 to-indigo-100/50 p-3 lg:p-5 rounded-2xl border border-indigo-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
+                <div class="flex items-center justify-between mb-1 lg:mb-2">
+                    <p class="text-[9px] font-bold text-indigo-500 uppercase tracking-widest hidden sm:block">Parts</p>
+                    <p class="text-[9px] font-bold text-indigo-500 uppercase tracking-widest sm:hidden">Parts</p>
+                    <div class="w-6 h-6 lg:w-8 lg:h-8 bg-indigo-500 rounded-lg flex items-center justify-center shadow-md">
+                        <svg class="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                     </div>
                 </div>
-                <p class="text-3xl font-extrabold text-slate-900">${p}</p>
+                <p class="text-xl lg:text-3xl font-extrabold text-slate-900">${p}</p>
             </div>
-            <div class="bg-gradient-to-br from-amber-50 to-amber-100/50 p-5 rounded-2xl border border-amber-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
-                <div class="flex items-center justify-between mb-2">
-                    <p class="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Answers</p>
-                    <div class="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <div class="bg-gradient-to-br from-amber-50 to-amber-100/50 p-3 lg:p-5 rounded-2xl border border-amber-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
+                <div class="flex items-center justify-between mb-1 lg:mb-2">
+                    <p class="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Answers</p>
+                    <div class="w-6 h-6 lg:w-8 lg:h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-md">
+                        <svg class="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     </div>
                 </div>
-                <p class="text-3xl font-extrabold text-slate-900">${a}</p>
+                <p class="text-xl lg:text-3xl font-extrabold text-slate-900">${a}</p>
             </div>
-            <div class="bg-gradient-to-br from-rose-50 to-rose-100/50 p-5 rounded-2xl border border-rose-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
-                <div class="flex items-center justify-between mb-2">
-                    <p class="text-[10px] font-bold text-rose-500 uppercase tracking-widest">Bookings</p>
-                    <div class="w-8 h-8 bg-rose-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            <div class="bg-gradient-to-br from-rose-50 to-rose-100/50 p-3 lg:p-5 rounded-2xl border border-rose-100 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
+                <div class="flex items-center justify-between mb-1 lg:mb-2">
+                    <p class="text-[9px] font-bold text-rose-500 uppercase tracking-widest">Bookings</p>
+                    <div class="w-6 h-6 lg:w-8 lg:h-8 bg-rose-500 rounded-lg flex items-center justify-center shadow-md">
+                        <svg class="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                     </div>
                 </div>
-                <p class="text-3xl font-extrabold text-slate-900">${b}</p>
+                <p class="text-xl lg:text-3xl font-extrabold text-slate-900">${b}</p>
             </div>
-            <div class="bg-gradient-to-br from-slate-50 to-slate-100/50 p-5 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
-                <div class="flex items-center justify-between mb-2">
-                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Audit Logs</p>
-                    <div class="w-8 h-8 bg-slate-500 rounded-lg flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+            <div class="bg-gradient-to-br from-slate-50 to-slate-100/50 p-3 lg:p-5 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] group">
+                <div class="flex items-center justify-between mb-1 lg:mb-2">
+                    <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Logs</p>
+                    <div class="w-6 h-6 lg:w-8 lg:h-8 bg-slate-500 rounded-lg flex items-center justify-center shadow-md">
+                        <svg class="w-3 h-3 lg:w-4 lg:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                     </div>
                 </div>
-                <p class="text-3xl font-extrabold text-slate-900">${l}</p>
+                <p class="text-xl lg:text-3xl font-extrabold text-slate-900">${l}</p>
             </div>
         </div>
 
         <section id="view-health">
+            <!-- System Overview Cards -->
+            
+
+           
+
             <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 <div class="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-slate-50/50">
                     <div class="flex items-center gap-4 w-full md:w-auto">
@@ -342,22 +447,7 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                 </div>
             </div>
 
-            <!-- Admin Login Sessions -->
-            <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
-                <div class="flex items-center justify-between mb-6">
-                    <div>
-                        <h3 class="text-xl font-bold text-slate-900">Admin Login Sessions</h3>
-                        <p class="text-sm text-slate-500">Active admin access with IP addresses</p>
-                    </div>
-                    <button onclick="loadSessions()" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-sm font-medium transition-all flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                        Refresh
-                    </button>
-                </div>
-                <div id="healthSessionsList" class="space-y-3">
-                    <div class="text-center py-8 text-slate-500">Loading sessions...</div>
-                </div>
-            </div>
+            
         </section>
 
         <!-- Settings View -->
@@ -486,7 +576,8 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                         </label>
                     </div>
                 </div>
-            </div>
+            </div> 
+            
 
             <!-- Database Management -->
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
@@ -533,16 +624,6 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                 <h3 class="text-xl font-bold text-slate-900 mb-6">Security Settings</h3>
                 <div class="space-y-3">
-                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
-                        <div>
-                            <p class="font-semibold text-slate-900">Two-Factor Authentication</p>
-                            <p class="text-sm text-slate-500">Require 2FA for admin access</p>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="settings2FA" class="sr-only peer" onchange="toggleSetting('2fa', this.checked)">
-                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                    </div>
                     <div class="flex items-center justify-between p-4 border border-slate-100 rounded-xl hover:border-blue-200 transition-colors">
                         <div>
                             <p class="font-semibold text-slate-900">Session Timeout</p>
@@ -565,25 +646,30 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                             Configure
                         </button>
                     </div>
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
+                        <div>
+                            <p class="font-semibold text-slate-900">Rate Limiting</p>
+                            <p class="text-sm text-slate-500">Protect against brute force attacks</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="settingsRateLimit" class="sr-only peer" checked onchange="toggleSetting('rateLimit', this.checked)">
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    <div class="flex items-center justify-between p-5 border border-slate-100 rounded-2xl hover:border-blue-200 hover:bg-blue-50/30 transition-all">
+                        <div>
+                            <p class="font-semibold text-slate-900">Audit Logging</p>
+                            <p class="text-sm text-slate-500">Log all admin actions</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="settingsAuditLog" class="sr-only peer" checked onchange="toggleSetting('auditLog', this.checked)">
+                            <div class="w-12 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
                 </div>
             </div>
 
-            <!-- Active Sessions -->
-            <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
-                <div class="flex items-center justify-between mb-6">
-                    <div>
-                        <h3 class="text-xl font-bold text-slate-900">Active Sessions</h3>
-                        <p class="text-sm text-slate-500">Manage admin login sessions</p>
-                    </div>
-                    <button onclick="loadSessions()" class="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-sm font-medium transition-all flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                        Refresh
-                    </button>
-                </div>
-                <div id="sessionsList" class="space-y-3">
-                    <div class="text-center py-8 text-slate-500">Loading sessions...</div>
-                </div>
-            </div>
+           
 
             <!-- API Configuration -->
             <div class="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
@@ -737,6 +823,26 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
     </div>
   </main>
 
+  <!-- BOTTOM NAVIGATION (Mobile) -->
+  <nav id="bottom-nav" class="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 z-30 lg:hidden flex items-center justify-around px-2 shadow-lg">
+    <button onclick="switchTab('health')" id="bnav-health" class="flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all text-blue-600">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+      <span class="text-[10px] font-bold">Health</span>
+    </button>
+    <button onclick="switchTab('analytics')" id="bnav-analytics" class="flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all text-slate-400">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+      <span class="text-[10px] font-bold">Analytics</span>
+    </button>
+    <button onclick="switchTab('settings')" id="bnav-settings" class="flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all text-slate-400">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+      <span class="text-[10px] font-bold">Settings</span>
+    </button>
+    <button onclick="openSidebar()" class="flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all text-slate-400">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      <span class="text-[10px] font-bold">Menu</span>
+    </button>
+  </nav>
+
   <script>
     const apis = [
         "/api/users", "/api/groups", "/api/relay-stage-actions", "/api/relay-workflows",
@@ -747,8 +853,7 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         "/api/survey_participants", "/api/survey-questions", "/api/survey-releases",
         "/api/surveys", "/api/approvals", "/api/roles", "/api/permissions",
         "/api/role-permissions", "/api/option-capacities", "/api/option-quota-buckets",
-        "/api/survey-sessions",, 
-       
+        "/api/survey-sessions"
     ];
 
     let charts = {};
@@ -811,16 +916,18 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
     }
 
     function updateSystemStatusUI(isOnline, message, lastChanged) {
-        // Update sidebar
-        const sidebarDot = document.getElementById('systemStatusDot');
-        const sidebarText = document.getElementById('systemStatusText');
-        if (sidebarDot) {
-            sidebarDot.className = 'w-2 h-2 rounded-full ' + (isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-red-500');
-        }
-        if (sidebarText) {
-            sidebarText.className = 'text-xs font-semibold ' + (isOnline ? 'text-emerald-400' : 'text-red-400');
-            sidebarText.innerText = isOnline ? 'System Online' : 'System Offline';
-        }
+        // Update sidebar (mobile + desktop)
+        ['systemStatusDot','systemStatusDotDesktop'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.className = 'w-2 h-2 rounded-full ' + (isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-red-500');
+        });
+        ['systemStatusText','systemStatusTextDesktop'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.className = 'text-xs font-semibold ' + (isOnline ? 'text-emerald-400' : 'text-red-400');
+                el.innerText = isOnline ? 'System Online' : 'System Offline';
+            }
+        });
         
         // Update main badge
         const badge = document.getElementById('systemStatusBadge');
@@ -871,6 +978,26 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             if (nodeEl) nodeEl.innerText = data.nodeVersion;
         } catch (e) {
             console.error('Failed to load server info:', e);
+        }
+    }
+
+    // Load database statistics
+    async function loadDbStats() {
+        try {
+            const resp = await fetch('/admin/api/db-stats', { credentials: 'same-origin' });
+            if (!resp.ok) return;
+            
+            const data = await resp.json();
+            
+            const ids = ['dbUsersCount', 'dbGroupsCount', 'dbSurveysCount', 'dbQuestionsCount', 'dbAnswersCount', 'dbSessionsCount'];
+            const keys = ['users', 'groups', 'surveys', 'questions', 'answers', 'sessions'];
+            
+            ids.forEach((id, idx) => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = data[keys[idx]] || 0;
+            });
+        } catch (e) {
+            console.error('Failed to load DB stats:', e);
         }
     }
 
@@ -1137,17 +1264,44 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         } catch (e) { /* ignore */ }
     }, 30000);
 
+    function openSidebar() {
+        document.getElementById('mobile-sidebar').classList.add('open');
+        document.getElementById('sidebar-overlay').classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeSidebar() {
+        document.getElementById('mobile-sidebar').classList.remove('open');
+        document.getElementById('sidebar-overlay').classList.remove('open');
+        document.body.style.overflow = '';
+    }
+
     function switchTab(tab) {
         document.getElementById('view-health').classList.toggle('hidden', tab !== 'health');
         document.getElementById('view-analytics').classList.toggle('hidden', tab !== 'analytics');
         document.getElementById('view-settings').classList.toggle('hidden', tab !== 'settings');
-        document.getElementById('tab-health').className = tab === 'health' ? 'px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active' : 'px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all';
-        document.getElementById('tab-analytics').className = tab === 'analytics' ? 'px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active' : 'px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all';
-        document.getElementById('tab-settings').className = tab === 'settings' ? 'px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active' : 'px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all';
-        document.getElementById('main-title').innerText = tab === 'health' ? 'System Health' : tab === 'analytics' ? 'Data Insights' : 'Settings';
+        // Desktop tabs
+        const tabs = ['health','analytics','settings'];
+        tabs.forEach(t => {
+            const el = document.getElementById('tab-' + t);
+            if (el) el.className = t === tab ? 'px-6 py-2.5 text-sm font-bold rounded-xl transition-all tab-active' : 'px-6 py-2.5 text-sm font-bold text-slate-500 rounded-xl transition-all';
+        });
+        // Mobile compact tabs
+        tabs.forEach(t => {
+            const el = document.getElementById('tab-' + t + '-mob');
+            if (el) el.className = t === tab ? 'px-3 py-1.5 text-xs font-bold rounded-lg transition-all tab-active' : 'px-3 py-1.5 text-xs font-bold text-slate-500 rounded-lg transition-all';
+        });
+        // Bottom nav
+        const bnavIds = { health: 'bnav-health', analytics: 'bnav-analytics', settings: 'bnav-settings' };
+        tabs.forEach(t => {
+            const el = document.getElementById('bnav-' + t);
+            if (el) el.className = t === tab ? 'flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all text-blue-600' : 'flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all text-slate-400';
+        });
+        // Title
+        document.getElementById('main-title').innerText = tab === 'health' ? 'Health Monitor' : tab === 'analytics' ? 'Data Insights' : 'Settings';
         if(tab === 'analytics') setTimeout(renderCharts, 100);
         if(tab === 'settings') { loadServerInfo(); loadSessions(); }
-        if(tab === 'health') loadSessions();
+        if(tab === 'health') { checkApiStatus(); loadSessions(); }
     }
 
     function renderCharts() {
@@ -1209,9 +1363,28 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         // Get persisted feature flags and disabled routes from the admin endpoints
         apiFlags = {};
         try {
-            const r = await fetch('/admin/api/flags', { credentials: 'same-origin' });
+            // Add timestamp to prevent caching
+            const r = await fetch('/admin/api/flags?_=' + Date.now(), { credentials: 'same-origin' });
             if (r.ok) apiFlags = await r.json();
         } catch (e) { /* ignore, we'll fallback to defaults */ }
+
+        // Fetch API status summary from server
+        try {
+            const statusResp = await fetch('/api/admin/api-status', { credentials: 'same-origin' });
+            if (statusResp.ok) {
+                const statusData = await statusResp.json();
+                // Update summary cards
+                document.getElementById('activeApisCount').innerText = statusData.active || 0;
+                document.getElementById('apiUptimePercent').innerText = (statusData.uptime || 0) + '%';
+                
+                // Calculate average response time
+                if (statusData.results && statusData.results.length > 0) {
+                    const times = statusData.results.filter(r => r.responseTime).map(r => r.responseTime);
+                    const avg = times.length > 0 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
+                    document.getElementById('avgResponseTime').innerText = avg + 'ms';
+                }
+            }
+        } catch (e) { /* ignore, cards will show - */ }
 
         // Build the grid
         grid.innerHTML = apis.map(function(api){
@@ -1266,11 +1439,14 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         // Hook up toggle buttons
         document.querySelectorAll('.toggle-btn').forEach(btn => {
             const apiPath = btn.getAttribute('data-api');
+            // Get the persisted state from apiFlags (loaded from /admin/api/flags)
+            // If explicitly set in flags, use that value; otherwise default to true
             const currentState = apiFlags[apiPath] !== undefined ? !!apiFlags[apiPath] : true;
             btn.innerText = currentState ? 'Disable' : 'Enable';
             btn.setAttribute('aria-pressed', (!currentState).toString());
             btn.onclick = async () => {
-                const newState = !(apiFlags[apiPath] !== undefined ? !!apiFlags[apiPath] : true);
+                // Toggle to the opposite of current persisted state
+                const newState = !currentState;
                 try {
                     const resp = await fetch('/admin/api/flags/toggle', {
                         method: 'POST',
@@ -1279,14 +1455,17 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                         body: JSON.stringify({ path: apiPath, enabled: newState })
                     });
                     if (resp.ok) {
-                        btn.innerText = newState ? 'Disable' : 'Enable';
-                        apiFlags[apiPath] = newState;
+                        const result = await resp.json();
+                        // Update button and state to the NEW persisted state
+                        btn.innerText = result.enabled ? 'Disable' : 'Enable';
+                        apiFlags[apiPath] = result.enabled;
                         // refresh status badge quickly
                         const st = document.getElementById(safeId(apiPath));
                         if (st) {
-                            st.innerText = newState ? 'Active' : 'Locked';
-                            st.className = newState ? "text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" : "text-[9px] font-black px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 shadow-sm shadow-amber-200";
+                            st.innerText = result.enabled ? 'Active' : 'Locked';
+                            st.className = result.enabled ? "text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" : "text-[9px] font-black px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 shadow-sm shadow-amber-200";
                         }
+                        showToast('API ' + apiPath + ' ' + (result.enabled ? 'enabled' : 'disabled') + ' (persisted)', 'success');
                     } else {
                         showToast('Failed to update flag', 'error');
                     }
@@ -1314,10 +1493,14 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                 }
             };
         }
+
+        // Apply immediately in case input has leftover state
+        const apiSearchEl = document.getElementById('apiSearch');
+        if (apiSearchEl) filterApis(apiSearchEl.value);
     }
 
-        document.getElementById('apiSearch').addEventListener('input', (e) => {
-        const t = e.target.value.toLowerCase();
+    function filterApis(query) {
+        const t = (query || '').toLowerCase();
         let visible = 0;
         document.querySelectorAll('.api-item').forEach(i => {
             const ok = i.getAttribute('data-api').toLowerCase().includes(t);
@@ -1326,6 +1509,10 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         });
         const countEl = document.getElementById('apiCount');
         if (countEl) countEl.innerText = '(' + visible + ')';
+    }
+
+    document.getElementById('apiSearch').addEventListener('input', (e) => {
+        filterApis(e.target.value);
     });
 
         // Auto-logout client-side after 1 hour as a user-friendly fallback
@@ -1457,9 +1644,9 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                             (body.paths || []).forEach(p => {
                                 // use same format as apis array (relative paths)
                                 if (typeof p === 'string') {
-                                    // strip host if present - keep path-only
-                                    const url = new URL(p, window.location.origin);
-                                    const path = url.pathname + (url.search || '');
+                                    // Paths from backend are already relative, use as-is
+                                    // The old URL parsing broke paths with :id parameters
+                                    const path = p;
                                     if (!apis.includes(path)) apis.push(path);
                                 }
                             });
@@ -1480,9 +1667,9 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
 </body>
 </html>
     `);
-  } catch (err) {
-    next(err);
-  }
+    } catch (err) {
+        next(err);
+    }
 });
 
 /* =========================================================
@@ -1500,19 +1687,53 @@ router.get('/api/flags', requireAdmin, (req, res) => {
     }
 });
 
+// Get status of a specific flag
+router.get('/api/flags/:path', requireAdmin, (req, res) => {
+    try {
+        const flagPath = '/' + req.params.path;
+        const flags = featureFlags.getFlags();
+        const isExplicitlySet = Object.prototype.hasOwnProperty.call(flags, flagPath);
+        const enabled = featureFlags.isEnabled(flagPath);
+        res.json({
+            path: flagPath,
+            enabled,
+            explicitlySet: isExplicitlySet,
+            persisted: isExplicitlySet
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to read flag' });
+    }
+});
+
+// Clear a flag (reset to default behavior - enabled by default)
+router.delete('/api/flags/:path', requireAdmin, (req, res) => {
+    try {
+        const flagPath = '/' + req.params.path;
+        featureFlags.clearFlag(flagPath);
+        console.log(`[AdminToggle] Cleared flag: ${flagPath} (reset to default)`);
+        return res.json({ path: flagPath, cleared: true, enabled: true });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to clear flag' });
+    }
+});
+
 router.post('/api/flags/toggle', express.json(), requireAdmin, (req, res) => {
     try {
         const { path, enabled } = req.body || {};
         if (!path) return res.status(400).json({ error: 'Missing path' });
 
-        // Persist the flag (featureFlags determines default behavior)
+        // Persist the flag - once enabled/disabled, it stays that way until changed again
+        // enabled = true means the API is accessible
+        // enabled = false means the API is disabled
         featureFlags.setFlag(path, !!enabled);
+
+        console.log(`[AdminToggle] Setting flag: ${path} => ${enabled}`);
 
         // Also toggle in-memory API gatekeeper for immediate effect
         // Note: apiControl.toggle expects isOff boolean (true to disable)
         apiControl.toggle(path, enabled === false);
 
-        return res.json({ path, enabled: !!enabled });
+        return res.json({ path, enabled: !!enabled, persisted: true });
     } catch (err) {
         return res.status(500).json({ error: 'Failed to toggle flag' });
     }
@@ -1534,18 +1755,35 @@ router.post('/api/generate-model', express.json(), requireAdmin, async (req, res
 
         if (_generatedModels[modelKey]) {
             const base = '/admin/generated/' + modelKey.toLowerCase();
+            // Auto-enable the generated API in feature flags (both base and id paths)
+            const basePath = base + '/';
+            const idPath = basePath + ':id';
+            featureFlags.setFlag(basePath, true);
+            featureFlags.setFlag(idPath, true);
+            // Also enable in-memory to ensure API is accessible
+            apiControl.toggle(basePath, false);
+            apiControl.toggle(idPath, false);
             return res.json({ ok: true, paths: [base + '/', base + '/:id'] });
         }
 
         // Delegate to controller which writes a persisted route file + manifest
         const result = await genController.createGeneratedApi(modelKey, allowedFields);
 
+        // Auto-enable the generated API in feature flags (both base and id paths)
+        const basePath = '/admin/generated/' + modelKey.toLowerCase() + '/';
+        const idPath = basePath + ':id';
+        featureFlags.setFlag(basePath, true);
+        featureFlags.setFlag(idPath, true);
+        // Also enable in-memory to ensure API is accessible
+        apiControl.toggle(basePath, false);
+        apiControl.toggle(idPath, false);
+
         // Attempt to require the generated route file and mount on this router so it's live immediately
         try {
             const path = require('path');
             const genFile = path.join(__dirname, '..', 'routes', 'generated-' + modelKey.toLowerCase() + '.js');
             // require by absolute path, clear cache if present
-            try { delete require.cache[require.resolve(genFile)]; } catch (e) {}
+            try { delete require.cache[require.resolve(genFile)]; } catch (e) { }
             const genMod = require(genFile);
             // If module exports a router, mount it on the admin router
             if (genMod && (typeof genMod === 'function' || genMod.stack)) {
@@ -1564,7 +1802,7 @@ router.post('/api/generate-model', express.json(), requireAdmin, async (req, res
                 try {
                     const rel = manifest[k].file; // e.g., routes/generated-xxx.js
                     const genFile = p.join(__dirname, '..', rel);
-                    try { delete require.cache[require.resolve(genFile)]; } catch (e) {}
+                    try { delete require.cache[require.resolve(genFile)]; } catch (e) { }
                     const m = require(genFile);
                     if (m && (typeof m === 'function' || m.stack)) {
                         try { router.use(m); } catch (e) { /* ignore per-file mount errors */ }
@@ -1629,7 +1867,7 @@ router.get('/api/generated-list', requireAdmin, (req, res) => {
             } catch (e) { return null; }
         }).filter(Boolean);
 
-    return res.json({ generated: generatedKeys, routes: mounted, manifest: (function(){ try { return genController.listGenerated(); } catch(e){ return {}; } })() });
+        return res.json({ generated: generatedKeys, routes: mounted, manifest: (function () { try { return genController.listGenerated(); } catch (e) { return {}; } })() });
     } catch (err) {
         return res.status(500).json({ error: err && err.message ? err.message : 'Failed' });
     }
@@ -1646,7 +1884,7 @@ router.post('/api/generated-reload', requireAdmin, (req, res) => {
                 const fileRel = manifest[key].file; // e.g., routes/generated-xxx.js
                 const genFile = path.join(__dirname, '..', fileRel);
                 // clear cache and require
-                try { delete require.cache[require.resolve(genFile)]; } catch (e) {}
+                try { delete require.cache[require.resolve(genFile)]; } catch (e) { }
                 const mod = require(genFile);
                 if (mod && (typeof mod === 'function' || mod.stack)) {
                     try { router.use(mod); } catch (e) { /* ignore mount errors for individual files */ }
@@ -1690,8 +1928,8 @@ router.post('/api/system-status', express.json(), requireAdmin, (req, res) => {
     try {
         const { online, message } = req.body || {};
         const status = serverMeta.setSystemOnline(online !== false, message || '');
-        return res.json({ 
-            isOnline: status.isOnline, 
+        return res.json({
+            isOnline: status.isOnline,
             offlineMessage: status.offlineMessage,
             lastChanged: status.lastChanged
         });
@@ -1745,20 +1983,20 @@ router.delete('/api/sessions/:id', requireAdmin, (req, res) => {
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
-        
+
         // Check if this is the current user's session by comparing tokens
         // Get the current admin token from cookie
         const isCurrentSession = session.token === req.cookies?.admin_token;
-        
+
         // Revoke the session first
         session.active = false;
         session.revokedAt = new Date().toISOString();
-        
+
         // Delete the session
         adminSessions.delete(sessionId);
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: 'Session deleted successfully',
             isCurrentSession: isCurrentSession
         });
@@ -1776,13 +2014,13 @@ router.get('/api/server-info', requireAdmin, (req, res) => {
         const uptime = serverMeta.getUptimeSeconds();
         const sysInfo = serverMeta.systemInfo();
         const status = serverMeta.getSystemStatus();
-        
+
         // Format uptime
         const days = Math.floor(uptime / 86400);
         const hours = Math.floor((uptime % 86400) / 3600);
         const minutes = Math.floor((uptime % 3600) / 60);
         const formattedUptime = `${days}d ${hours}h ${minutes}m`;
-        
+
         res.json({
             uptime: formattedUptime,
             uptimeSeconds: uptime,
@@ -1800,6 +2038,28 @@ router.get('/api/server-info', requireAdmin, (req, res) => {
 });
 
 /* =========================================================
+     ADMIN: Database Stats API
+     - GET /admin/api/db-stats -> returns database record counts
+========================================================== */
+router.get('/api/db-stats', requireAdmin, async (req, res) => {
+    try {
+        const counts = {};
+
+        // Get counts from each model
+        counts.users = await db.User?.count() || 0;
+        counts.groups = await db.Group?.count() || 0;
+        counts.surveys = await db.Survey?.count() || 0;
+        counts.questions = await db.SurveyQuestion?.count() || 0;
+        counts.answers = await db.SurveyAnswer?.count() || 0;
+        counts.sessions = await db.SurveySession?.count() || 0;
+
+        res.json(counts);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to get DB stats' });
+    }
+});
+
+/* =========================================================
      ADMIN: Database Export API
      - GET /admin/api/export/:type -> exports data as JSON
 ========================================================== */
@@ -1807,7 +2067,7 @@ router.get('/api/export/:type', requireAdmin, async (req, res) => {
     try {
         const { type } = req.params;
         let data = [];
-        
+
         switch (type) {
             case 'users':
                 data = await db.User?.findAll({ attributes: { exclude: ['password'] } }) || [];
@@ -1827,7 +2087,7 @@ router.get('/api/export/:type', requireAdmin, async (req, res) => {
             default:
                 return res.status(400).json({ error: 'Unknown export type' });
         }
-        
+
         res.json({
             type,
             count: data.length,
@@ -1848,15 +2108,15 @@ router.post('/api/backup', requireAdmin, async (req, res) => {
         const fs = require('fs');
         const path = require('path');
         const backupDir = path.join(__dirname, '..', '..', 'backups');
-        
+
         // Create backups directory if not exists
         if (!fs.existsSync(backupDir)) {
             fs.mkdirSync(backupDir, { recursive: true });
         }
-        
+
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const backupFile = path.join(backupDir, `backup-${timestamp}.json`);
-        
+
         // Gather all data
         const backupData = {
             createdAt: new Date().toISOString(),
@@ -1866,11 +2126,11 @@ router.post('/api/backup', requireAdmin, async (req, res) => {
             participants: (await db.SurveyParticipant?.findAll() || []).map(p => p.toJSON ? p.toJSON() : p),
             answers: (await db.SurveyAnswer?.findAll() || []).map(a => a.toJSON ? a.toJSON() : a)
         };
-        
+
         fs.writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: 'Backup created successfully',
             file: backupFile,
             size: fs.statSync(backupFile).size
@@ -1889,18 +2149,18 @@ router.post('/api/optimize', requireAdmin, async (req, res) => {
         // Note: MySQL and PostgreSQL have different optimize commands
         // This is a simplified version - actual implementation depends on your DB
         const { sequelize } = require('../models');
-        
+
         // Try to run analyze/optimize based on dialect
         const dialect = sequelize.getDialect();
-        
+
         if (dialect === 'mysql') {
             await sequelize.query('OPTIMIZE TABLE users, surveys, survey_participants, survey_answers');
         } else if (dialect === 'postgres') {
             await sequelize.query('VACUUM ANALYZE');
         }
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: 'Database optimized successfully',
             dialect
         });
@@ -1916,13 +2176,13 @@ router.post('/api/optimize', requireAdmin, async (req, res) => {
 router.get('/api/logs', requireAdmin, async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 100;
-        
-        // Get recent audit logs
-        const logs = await db.AuditLog?.findAll({ 
+
+        // Get recent audit logs - use created_at (snake_case) as defined in migration
+        const logs = await db.AuditLog?.findAll({
             limit,
-            order: [['createdAt', 'DESC']]
+            order: [['created_at', 'DESC']]
         }) || [];
-        
+
         res.json({
             count: logs.length,
             logs: logs.map(log => log.toJSON ? log.toJSON() : log)
@@ -1945,7 +2205,7 @@ function loadAdminSettings() {
         if (fs.existsSync(SETTINGS_FILE)) {
             return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
         }
-    } catch (err) {}
+    } catch (err) { }
     return {};
 }
 
@@ -1953,7 +2213,7 @@ function saveAdminSettings(settings) {
     try {
         const fs = require('fs');
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
-    } catch (err) {}
+    } catch (err) { }
 }
 
 router.get('/api/settings', requireAdmin, (req, res) => {
@@ -1984,11 +2244,11 @@ router.post('/api/settings', express.json(), requireAdmin, (req, res) => {
 router.post('/api/notify/test', requireAdmin, async (req, res) => {
     try {
         const { type } = req.body || {};
-        
+
         // In a real implementation, this would send emails/push notifications
         // For now, we just log and return success
         console.log(`[NOTIFY] Test notification: ${type} at ${new Date().toISOString()}`);
-        
+
         // Create audit log for the notification
         if (db.AuditLog) {
             await db.AuditLog.create({
@@ -1997,9 +2257,9 @@ router.post('/api/notify/test', requireAdmin, async (req, res) => {
                 userId: req.session?.userId || 'admin'
             });
         }
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: `Test ${type} notification sent`
         });
     } catch (err) {
@@ -2015,12 +2275,12 @@ router.post('/api/cache/clear', requireAdmin, (req, res) => {
     try {
         // Clear any in-memory caches
         // In a real app, this might clear Redis, memcached, etc.
-        
+
         // Log the cache clear action
         console.log(`[CACHE] Cache cleared at ${new Date().toISOString()}`);
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: 'Cache cleared successfully'
         });
     } catch (err) {
@@ -2036,18 +2296,562 @@ router.post('/api/restart', requireAdmin, (req, res) => {
     try {
         // Log the restart request
         console.log(`[SERVER] Restart requested at ${new Date().toISOString()}`);
-        
+
         // In production, this would trigger a graceful restart
         // For now, we'll just return success
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             message: 'Server restart initiated'
         });
-        
+
         // Note: Actual restart would require process management
         // like PM2, forever, or systemd
     } catch (err) {
         res.status(500).json({ error: 'Failed to restart: ' + err.message });
+    }
+});
+
+module.exports = router;
+
+/* =========================================================
+   USER MANAGEMENT API
+   ========================================================= */
+
+// Get all users
+router.get('/api/users', requireAdmin, async (req, res) => {
+    try {
+        const db = require('../models');
+        const users = await db.sequelize.query(
+            "SELECT user_id, name, email, status, created_at, updated_at FROM users ORDER BY created_at DESC",
+            { type: db.sequelize.QueryTypes.SELECT }
+        );
+        res.json({ success: true, users });
+    } catch (err) {
+        console.error('Error fetching users:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch users' });
+    }
+});
+
+// Toggle user status (revoke/unrevoke)
+router.post('/api/users/:id/toggle-status', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = require('../models');
+
+        // Get current status
+        const [users] = await db.sequelize.query(
+            "SELECT status FROM users WHERE user_id = ?",
+            { replacements: [id] }
+        );
+
+        if (!users || users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const currentStatus = users[0].status;
+        const newStatus = currentStatus === 'ACTIVE' ? 'FROZEN' : 'ACTIVE';
+
+        await db.sequelize.query(
+            "UPDATE users SET status = ? WHERE user_id = ?",
+            { replacements: [newStatus, id] }
+        );
+
+        res.json({
+            success: true,
+            message: `User ${newStatus === 'ACTIVE' ? 'unrevoked' : 'revoked'} successfully`,
+            newStatus
+        });
+    } catch (err) {
+        console.error('Error toggling user status:', err);
+        res.status(500).json({ success: false, message: 'Failed to update user status' });
+    }
+});
+
+// Update user
+router.put('/api/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, email } = req.body;
+        const db = require('../models');
+
+        if (!name && !email) {
+            return res.status(400).json({ success: false, message: 'Name or email is required' });
+        }
+
+        // Check if user exists
+        const [users] = await db.sequelize.query(
+            "SELECT user_id FROM users WHERE user_id = ?",
+            { replacements: [id] }
+        );
+
+        if (!users || users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Build update query
+        const updates = [];
+        const replacements = [];
+
+        if (name !== undefined) {
+            updates.push('name = ?');
+            replacements.push(name);
+        }
+        if (email !== undefined) {
+            updates.push('email = ?');
+            replacements.push(email);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ success: false, message: 'No fields to update' });
+        }
+
+        replacements.push(id);
+
+        await db.sequelize.query(
+            `UPDATE users SET ${updates.join(', ')} WHERE user_id = ?`,
+            { replacements }
+        );
+
+        res.json({ success: true, message: 'User updated successfully' });
+    } catch (err) {
+        console.error('Error updating user:', err);
+        res.status(500).json({ success: false, message: 'Failed to update user' });
+    }
+});
+
+// Delete user
+router.delete('/api/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = require('../models');
+
+        // Check if user exists
+        const [users] = await db.sequelize.query(
+            "SELECT user_id FROM users WHERE user_id = ?",
+            { replacements: [id] }
+        );
+
+        if (!users || users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        await db.sequelize.query(
+            "DELETE FROM users WHERE user_id = ?",
+            { replacements: [id] }
+        );
+
+        res.json({ success: true, message: 'User deleted successfully' });
+    } catch (err) {
+        console.error('Error deleting user:', err);
+        res.status(500).json({ success: false, message: 'Failed to delete user' });
+    }
+});
+
+// Users management page
+router.get('/users', requireAdmin, async (req, res) => {
+    try {
+        const db = require('../models');
+        const users = await db.sequelize.query(
+            "SELECT user_id, name, email, status, created_at FROM users ORDER BY created_at DESC",
+            { type: db.sequelize.QueryTypes.SELECT }
+        );
+
+        res.send(`
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>User Management | Survey Premium Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; transition: background-color 0.3s, color 0.3s; }
+    .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.2); }
+    .dark .glass { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .dark body { background-color: #0f172a; color: #f1f5f9; }
+    .dark .bg-white { background-color: #1e293b; }
+    .dark .text-slate-900 { color: #f1f5f9; }
+    .dark .text-slate-600 { color: #94a3b8; }
+    .dark .text-slate-500 { color: #64748b; }
+    .dark .bg-slate-50 { background-color: #0f172a; }
+    .dark .border-slate-200, .dark .border-slate-100 { border-color: #334155; }
+    .dark .divide-slate-100 > * + * { border-color: #334155; }
+    
+    .status-active { background: #d1fae5; color: #065f46; }
+    .dark .status-active { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .status-frozen { background: #fee2e2; color: #991b1b; }
+    .dark .status-frozen { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; }
+
+    @media (max-width: 640px) {
+      .responsive-table tr { display: block; margin-bottom: 1rem; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1rem; }
+      .dark .responsive-table tr { border-color: #334155; }
+      .responsive-table td { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border: none !important; }
+      .responsive-table td::before { content: attr(data-label); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: #64748b; }
+      .responsive-table thead { display: none; }
+      .responsive-table td:first-child { padding-top: 0; }
+      .responsive-table td:last-child { padding-bottom: 0; }
+      /* Make action buttons stack on mobile */
+      .responsive-table td[data-label="Operations"] .flex { flex-direction: row; justify-content: flex-end; }
+    }
+    /* Mobile-specific overrides */
+    @media (max-width: 640px) {
+      .glass { border-radius: 1.5rem; }
+      h1 { font-size: 1.5rem; line-height: 1.2; }
+      .p-6, .p-8 { padding: 1rem; }
+      .rounded-3xl { border-radius: 1.5rem; }
+      /* Fix search input on mobile */
+      .relative.w-full { width: 100% !important; }
+    }
+    /* Improve touch targets on mobile */
+    @media (max-width: 1024px) {
+      button, .btn { min-height: 44px; min-width: 44px; }
+      input, select { min-height: 44px; }
+      .gap-4 { gap: 0.75rem; }
+    }
+  </style>
+</head>
+<body class="bg-[#f8fafc] min-h-screen transition-colors duration-300">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+      <div>
+        <a href="/admin/dashboard" class="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline font-medium mb-4 transition-all">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+          Back to Dashboard
+        </a>
+        <h1 class="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">User Management</h1>
+        <p class="text-slate-500 font-medium mt-1">Manage user accounts, permissions and system access.</p>
+      </div>
+      
+      <div class="flex items-center gap-4">
+        <!-- Dark Mode Toggle -->
+        <button onclick="toggleDarkMode()" id="darkModeToggle" class="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 hover:scale-105 transition-all">
+          <svg id="sunIcon" class="w-6 h-6 text-amber-500 hidden" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"></path></svg>
+          <svg id="moonIcon" class="w-6 h-6 text-indigo-600" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
+        </button>
+        <div class="bg-blue-600 rounded-2xl px-6 py-3 text-white shadow-lg shadow-blue-500/30">
+          <span class="text-xs font-bold uppercase tracking-wider opacity-80 block">Total Users</span>
+          <span id="userCount" class="text-2xl font-black">${users.length}</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="glass rounded-[2rem] shadow-xl overflow-hidden mb-12">
+      <div class="p-6 md:p-8 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div class="relative w-full sm:w-96">
+          <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          </span>
+          <input type="text" id="searchInput" placeholder="Search by name or email..." 
+                 class="w-full pl-12 pr-4 py-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white">
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="window.location.reload()" class="p-3 text-slate-500 hover:text-blue-600 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            </button>
+        </div>
+      </div>
+      
+      <div class="overflow-x-auto custom-scrollbar">
+        <table class="w-full responsive-table">
+          <thead class="bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-8 py-5 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">User Details</th>
+              <th class="px-8 py-5 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Email Address</th>
+              <th class="px-8 py-5 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Account Status</th>
+              <th class="px-8 py-5 text-left text-xs font-bold text-slate-500 uppercase tracking-widest">Join Date</th>
+              <th class="px-8 py-5 text-right text-xs font-bold text-slate-500 uppercase tracking-widest">Operations</th>
+            </tr>
+          </thead>
+          <tbody id="userTableBody" class="divide-y divide-slate-100 dark:divide-slate-700">
+            ${users.map(user => `
+            <tr class="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors" data-user-id="${user.user_id}">
+              <td class="px-8 py-6" data-label="User">
+                <div class="flex items-center gap-4">
+                  <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/20">
+                    ${user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <div>
+                    <span class="font-bold text-slate-900 dark:text-white block">${user.name || 'Unknown User'}</span>
+                    <span class="text-[10px] text-slate-400 font-mono">ID: ${user.user_id}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="px-8 py-6" data-label="Email">
+                <span class="font-medium text-slate-600 dark:text-slate-400">${user.email || '—'}</span>
+              </td>
+              <td class="px-8 py-6" data-label="Status">
+                <span class="inline-flex items-center px-4 py-1.5 rounded-xl text-xs font-bold ${user.status === 'ACTIVE' ? 'status-active' : 'status-frozen'}">
+                  <span class="w-1.5 h-1.5 rounded-full mr-2 ${user.status === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}"></span>
+                  ${user.status === 'ACTIVE' ? 'Active' : 'Frozen'}
+                </span>
+              </td>
+              <td class="px-8 py-6" data-label="Joined">
+                <span class="text-slate-500 dark:text-slate-400 text-sm font-medium">${user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+              </td>
+              <td class="px-8 py-6 text-right" data-label="Actions">
+                <div class="flex items-center justify-end gap-2">
+                  <button onclick="editUser('${user.user_id}', '${(user.name || '').replace(/'/g, "\\'")}', '${(user.email || '').replace(/'/g, "\\'")}')" 
+                          class="p-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white dark:hover:bg-blue-600 dark:hover:text-white rounded-xl transition-all" title="Edit User">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                  </button>
+                  <button onclick="toggleUserStatus('${user.user_id}', '${user.status}')" 
+                          class="p-2.5 ${user.status === 'ACTIVE' ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500' : 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500'} hover:text-white rounded-xl transition-all" title="${user.status === 'ACTIVE' ? 'Revoke Access' : 'Restore Access'}">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                  </button>
+                  <button onclick="deleteUser('${user.user_id}', '${(user.name || '').replace(/'/g, "\\'")}')" 
+                          class="p-2.5 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white rounded-xl transition-all" title="Delete User">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit User Modal -->
+  <div id="editModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4 transition-all">
+    <div class="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl p-8 w-full max-w-md scale-95 transition-transform duration-300 transform" id="modalContainer">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-black text-slate-900 dark:text-white">Edit Profile</h2>
+        <button onclick="closeEditModal()" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all">
+          <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      </div>
+      <form id="editForm" class="space-y-6">
+        <input type="hidden" id="editUserId">
+        <div>
+          <label class="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Full Name</label>
+          <input type="text" id="editName" required
+                 class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Email Address</label>
+          <input type="email" id="editEmail" required
+                 class="w-full px-5 py-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white">
+        </div>
+        <div class="flex gap-3 pt-4">
+          <button type="button" onclick="closeEditModal()" 
+                  class="flex-1 py-4 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-all">
+            Cancel
+          </button>
+          <button type="submit" 
+                  class="flex-1 py-4 bg-blue-600 text-white rounded-2xl text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition-all active:scale-95">
+            Save Changes
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script>
+    // Dark Mode Persistence Logic
+    function applyDarkMode() {
+        const isDark = localStorage.getItem('admin_dark_mode') === 'true';
+        if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.getElementById('sunIcon').classList.remove('hidden');
+            document.getElementById('moonIcon').classList.add('hidden');
+        } else {
+            document.documentElement.classList.remove('dark');
+            document.getElementById('sunIcon').classList.add('hidden');
+            document.getElementById('moonIcon').classList.remove('hidden');
+        }
+    }
+
+    function toggleDarkMode() {
+        const isDark = !document.documentElement.classList.contains('dark');
+        localStorage.setItem('admin_dark_mode', isDark);
+        applyDarkMode();
+    }
+
+    // Initialize dark mode
+    applyDarkMode();
+
+    // Search functionality with debounce
+    let searchTimer;
+    document.getElementById('searchInput').addEventListener('input', function(e) {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const searchTerm = e.target.value.toLowerCase();
+        const rows = document.querySelectorAll('#userTableBody tr');
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+          const name = row.querySelector('[data-label="User"] .font-bold').textContent.toLowerCase();
+          const email = row.querySelector('[data-label="Email"]').textContent.toLowerCase();
+          if (name.includes(searchTerm) || email.includes(searchTerm)) {
+            row.style.display = '';
+            visibleCount++;
+          } else {
+            row.style.display = 'none';
+          }
+        });
+        document.getElementById('userCount').textContent = visibleCount;
+      }, 200);
+    });
+
+    // Edit user modal functions
+    function editUser(userId, name, email) {
+      document.getElementById('editUserId').value = userId;
+      document.getElementById('editName').value = name;
+      document.getElementById('editEmail').value = email;
+      const modal = document.getElementById('editModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      setTimeout(() => {
+        document.getElementById('modalContainer').classList.remove('scale-95');
+        document.getElementById('modalContainer').classList.add('scale-100');
+      }, 10);
+    }
+
+    function closeEditModal() {
+      document.getElementById('modalContainer').classList.add('scale-95');
+      document.getElementById('modalContainer').classList.remove('scale-100');
+      setTimeout(() => {
+        document.getElementById('editModal').classList.add('hidden');
+        document.getElementById('editModal').classList.remove('flex');
+      }, 200);
+    }
+
+    // Handle edit form submit
+    document.getElementById('editForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const userId = document.getElementById('editUserId').value;
+      const name = document.getElementById('editName').value;
+      const email = document.getElementById('editEmail').value;
+
+      try {
+        const response = await fetch('/admin/api/users/' + userId, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          Swal.fire({
+            icon: 'success',
+            title: 'Updated!',
+            text: 'User profile has been updated.',
+            timer: 1500,
+            showConfirmButton: false
+          }).then(() => {
+            window.location.reload();
+          });
+          closeEditModal();
+        } else {
+          Swal.fire('Error', data.message, 'error');
+        }
+      } catch (err) {
+        Swal.fire('Error', 'Failed to update user', 'error');
+      }
+    });
+
+    // Delete user
+    async function deleteUser(userId, userName) {
+      const result = await Swal.fire({
+        title: 'Delete User?',
+        text: 'Are you sure you want to delete ' + userName + '? This action is permanent!',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#e11d48',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Yes, delete it!'
+      });
+
+      if (!result.isConfirmed) return;
+      
+      try {
+        const response = await fetch('/admin/api/users/' + userId, {
+          method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          Swal.fire('Deleted!', 'User has been removed.', 'success').then(() => {
+            window.location.reload();
+          });
+        } else {
+          Swal.fire('Error', data.message, 'error');
+        }
+      } catch (err) {
+        Swal.fire('Error', 'Failed to delete user', 'error');
+      }
+    }
+
+    // Toggle user status
+    async function toggleUserStatus(userId, currentStatus) {
+      const action = currentStatus === 'ACTIVE' ? 'revoke access for' : 'restore access for';
+      
+      const result = await Swal.fire({
+        title: 'Change Status?',
+        text: 'Do you want to ' + action + ' this user?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#3b82f6',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Proceed'
+      });
+
+      if (!result.isConfirmed) return;
+      
+      try {
+        const response = await fetch('/admin/api/users/' + userId + '/toggle-status', {
+          method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          Swal.fire({
+            icon: 'success',
+            title: 'Status Updated',
+            timer: 1000,
+            showConfirmButton: false
+          }).then(() => {
+            window.location.reload();
+          });
+        }
+      } catch (err) {
+        Swal.fire('Error', 'Failed to update status', 'error');
+      }
+    }
+  </script>
+</body>
+</html>
+        `);
+
+
+
+
+
+    } catch (err) {
+        console.error('Error loading users page:', err);
+        res.status(500).send('Error loading users page');
     }
 });
 

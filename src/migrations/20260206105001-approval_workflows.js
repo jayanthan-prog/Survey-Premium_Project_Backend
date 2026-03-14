@@ -6,7 +6,7 @@ module.exports = {
       'approval_workflows',
       {
         approval_workflow_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           primaryKey: true,
           defaultValue: Sequelize.UUIDV4,
@@ -18,12 +18,12 @@ module.exports = {
         },
 
         entity_id: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
         },
 
         requested_by: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: false,
           references: {
             model: 'users',
@@ -34,7 +34,7 @@ module.exports = {
         },
 
         approved_by: {
-          type: Sequelize.UUID,
+          type: Sequelize.BIGINT,
           allowNull: true,
           references: {
             model: 'users',

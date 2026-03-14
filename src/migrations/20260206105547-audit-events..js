@@ -4,14 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('audit_events', {
       event_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         primaryKey: true,
         defaultValue: Sequelize.UUIDV4,
       },
 
       user_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: true,
         references: {
           model: 'users',
@@ -22,7 +22,7 @@ module.exports = {
       },
 
       survey_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: true,
         references: {
           model: 'surveys',
@@ -33,7 +33,7 @@ module.exports = {
       },
 
       action_plan_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: true,
         references: {
           model: 'action_plans',

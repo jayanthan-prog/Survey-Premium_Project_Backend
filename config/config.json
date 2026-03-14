@@ -1,0 +1,32 @@
+{
+  "development": {
+    "username": "jayanthan",
+    "password": "blackarch",
+    "database": "survey_db",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "logging": false,
+    "migrations": "/home/blackarch/Desktop/SSG/Survey/Survey-Premium_Project_Backend/src/migrations",
+    "models": "/home/blackarch/Desktop/SSG/Survey/Survey-Premium_Project_Backend/src/models"
+  },
+  "test": {
+    "username": "jayanthan",
+    "password": "blackarch",
+    "database": "survey_db_test",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "logging": false,
+    "migrations": "/home/blackarch/Desktop/SSG/Survey/Survey-Premium_Project_Backend/src/migrations",
+    "models": "/home/blackarch/Desktop/SSG/Survey/Survey-Premium_Project_Backend/src/models"
+  },
+  "production": {
+    "username": "jayanthan",
+    "password": "blackarch",
+    "database": "survey_db_prod",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "logging": false,
+    "migrations": "/home/blackarch/Desktop/SSG/Survey/Survey-Premium_Project_Backend/src/migrations",
+    "models": "/home/blackarch/Desktop/SSG/Survey/Survey-Premium_Project_Backend/src/models"
+  }
+}

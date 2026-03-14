@@ -4,14 +4,14 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.createTable('survey_release_audience', {
       release_audience_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         primaryKey: true,
         defaultValue: Sequelize.UUIDV4,
       },
 
       release_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: false,
         references: {
           model: 'survey_releases',
@@ -27,7 +27,7 @@ module.exports = {
       },
 
       ref_id: {
-        type: Sequelize.UUID,
+        type: Sequelize.BIGINT,
         allowNull: true,
       },
 

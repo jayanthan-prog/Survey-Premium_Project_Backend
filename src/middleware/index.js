@@ -28,7 +28,13 @@ function apiGatekeeper(req, res, next) {
   const inMemoryDisabled = Array.from(disabledRoutes).some(d => d === path || (d.length > 1 && path.startsWith(d)));
 
   let persistedDisabled = false;
-  if (featureFlags && typeof featureFlags.getFlags === 'function') {
+  if (featureFlags && typeof featureFlags.isEnabled === 'function') {
+    // Use isEnabled which respects persisted flags and defaults to true
+    const isEnabled = featureFlags.isEnabled(path);
+    persistedDisabled = !isEnabled;
+    console.log(`[ApiGatekeeper] Path: ${path}, isEnabled: ${isEnabled}, persistedDisabled: ${persistedDisabled}`);
+  } else if (featureFlags && typeof featureFlags.getFlags === 'function') {
+    // Fallback to legacy method
     const flags = featureFlags.getFlags() || {};
     // Check exact key first, then any prefix keys that are explicitly false
     if (Object.prototype.hasOwnProperty.call(flags, path)) {
@@ -41,6 +47,7 @@ function apiGatekeeper(req, res, next) {
   }
 
   if (inMemoryDisabled || persistedDisabled) {
+    console.log(`[ApiGatekeeper] Blocking: ${path} (inMemoryDisabled: ${inMemoryDisabled}, persistedDisabled: ${persistedDisabled})`);
     return res.status(503).json({ 
       error: 'Service Unavailable', 
       message: 'This endpoint is temporarily disabled for maintenance.' 
@@ -71,7 +78,7 @@ async function requireAuth(req, res, next) {
     if (!AuthToken) return res.status(500).json({ error: 'AuthToken model not found' });
     const authToken = await AuthToken.findOne({
       where: {
-        token,
+        token_hash: token,
         revoked_at: null,
         expires_at: { [Op.gt]: new Date() },
       },
