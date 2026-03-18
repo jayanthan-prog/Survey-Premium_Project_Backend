@@ -6,7 +6,7 @@ const AuthToken = sequelize.define('AuthToken', {
   auth_token_id: {
     type: DataTypes.BIGINT,
     primaryKey: true,
-    autoIncrement: true,
+    autoIncrement: false,
   },
   user_id: {
     type: DataTypes.BIGINT,

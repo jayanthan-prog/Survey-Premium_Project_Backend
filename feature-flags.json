@@ -56,5 +56,7 @@
   "/admin/generated/surveyrelease/": false,
   "/admin/generated/surveyrelease/:id": true,
   "/admin/generated/relayinstance/": true,
-  "/admin/generated/relayinstance/:id": false
+  "/admin/generated/relayinstance/:id": false,
+  "/admin/generated/approvalworkflow/": true,
+  "/admin/generated/approvalworkflow/:id": true
 }

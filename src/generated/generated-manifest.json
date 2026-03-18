@@ -1,23 +1,17 @@
 {
-  "SurveyRelease": {
-    "file": "routes/generated-surveyrelease.js",
+  "ApprovalWorkflow": {
+    "file": "routes\\generated-approvalworkflow.js",
     "allowedFields": [
-      "release_id"
+      "approval_workflow_id",
+      "entity_type",
+      "entity_id",
+      "requested_by",
+      "approved_by",
+      "status",
+      "comments",
+      "requested_at",
+      "approved_at"
     ],
-    "createdAt": "2026-03-09T05:44:45.008Z"
-  },
-  "AuthToken": {
-    "file": "routes/generated-authtoken.js",
-    "allowedFields": [
-      "auth_token_id"
-    ],
-    "createdAt": "2026-03-10T09:29:55.808Z"
-  },
-  "RelayInstance": {
-    "file": "routes/generated-relayinstance.js",
-    "allowedFields": [
-      "status"
-    ],
-    "createdAt": "2026-03-10T14:29:48.358Z"
+    "createdAt": "2026-03-17T03:47:53.199Z"
   }
 }

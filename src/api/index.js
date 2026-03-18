@@ -1,5 +1,6 @@
 'use strict';
 const express = require('express');
+const cors = require('cors');
 const app = express();
 
 // Swagger UI
@@ -9,9 +10,10 @@ const swaggerDocument = require('../swagger/swagger.json');
 app.use(express.json());
 // accept URL-encoded form bodies for the admin UI login form
 app.use(express.urlencoded({ extended: false }));
+app.use(cors());
 
 // Middleware
-const { requestLogger, notFound, errorHandler, apiGatekeeper } = require('../middleware');
+const { requestLogger, notFound, errorHandler, apiGatekeeper, requireAuth, requireAnyRole } = require('../middleware');
 app.use(requestLogger);
 
 // Route modules
@@ -73,39 +75,40 @@ app.use('/api/auth', authRoutes);
 
 // Gatekeeper: block/allow API routes based on admin toggles and feature flags
 app.use('/api', apiGatekeeper);
+app.use('/api', requireAuth);
 
 // Mount routes under /api
-app.use('/api/users', userRoutes);
-app.use('/api/groups', groupRoutes);
-app.use('/api/relay-stage-actions', relayStageActionRoutes);
-app.use('/api/relay-workflows', relayWorkflowRoutes);
-app.use('/api/action-plan-items', actionPlanItemRoutes);
-app.use('/api/action-plans', actionPlanRoutes);
-app.use('/api/audit-events', auditEventRoutes);
-app.use('/api/audit-logs', auditLogRoutes);
-app.use('/api/auth-tokens', authTokenRoutes);
-app.use('/api/calendar-slots', calendarSlotRoutes);
-app.use('/api/enums', enumRoutes);
-app.use('/api/group-members', groupMemberRoutes);
-app.use('/api/relay-instances', relayInstanceRoutes);
-app.use('/api/relay-stages', relayStageRoutes);
-app.use('/api/slot-bookings', slotBookingRoutes);
-app.use('/api/survey-answer-selections', surveyAnswerSelectionRoutes);
-app.use('/api/survey_answers', surveyAnswerRoutes);
-app.use('/api/survey_options', surveyOptionRoutes);
-app.use('/api/survey_participants', survey_participants);
-app.use('/api/survey_question_options', require('../routes/survey_question_option'));
-app.use('/api/survey-questions', surveyQuestionRoutes);
-app.use('/api/survey-releases', surveyReleaseRoutes);
-app.use('/api/surveys', surveyRoutes);
-app.use('/api/approvals', approvalRoutes);
-app.use('/api/user-roles', require('../routes/userRole.routes'));
-app.use('/api/roles', roleRoutes);
-app.use('/api/permissions', permissionRoutes);
-app.use('/api/role-permissions', rolePermissionRoutes);
-app.use('/api/option-capacities', optionCapacityRoutes);
-app.use('/api/option-quota-buckets', optionQuotaBucketRoutes);
-app.use('/api/survey-sessions', surveySessionRoutes);
+app.use('/api/users', requireAnyRole(['ADMIN', 'APPROVER']), userRoutes);
+app.use('/api/groups', requireAnyRole(['ADMIN', 'APPROVER']), groupRoutes);
+app.use('/api/relay-stage-actions', requireAnyRole(['ADMIN', 'APPROVER']), relayStageActionRoutes);
+app.use('/api/relay-workflows', requireAnyRole(['ADMIN', 'APPROVER']), relayWorkflowRoutes);
+app.use('/api/action-plan-items', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), actionPlanItemRoutes);
+app.use('/api/action-plans', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), actionPlanRoutes);
+app.use('/api/audit-events', requireAnyRole(['ADMIN']), auditEventRoutes);
+app.use('/api/audit-logs', requireAnyRole(['ADMIN']), auditLogRoutes);
+app.use('/api/auth-tokens', requireAnyRole(['ADMIN']), authTokenRoutes);
+app.use('/api/calendar-slots', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), calendarSlotRoutes);
+app.use('/api/enums', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), enumRoutes);
+app.use('/api/group-members', requireAnyRole(['ADMIN', 'APPROVER']), groupMemberRoutes);
+app.use('/api/relay-instances', requireAnyRole(['ADMIN', 'APPROVER']), relayInstanceRoutes);
+app.use('/api/relay-stages', requireAnyRole(['ADMIN', 'APPROVER']), relayStageRoutes);
+app.use('/api/slot-bookings', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), slotBookingRoutes);
+app.use('/api/survey-answer-selections', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveyAnswerSelectionRoutes);
+app.use('/api/survey_answers', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveyAnswerRoutes);
+app.use('/api/survey_options', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveyOptionRoutes);
+app.use('/api/survey_participants', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), survey_participants);
+app.use('/api/survey_question_options', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), require('../routes/survey_question_option'));
+app.use('/api/survey-questions', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveyQuestionRoutes);
+app.use('/api/survey-releases', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveyReleaseRoutes);
+app.use('/api/surveys', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveyRoutes);
+app.use('/api/approvals', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), approvalRoutes);
+app.use('/api/user-roles', requireAnyRole(['ADMIN']), require('../routes/userRole.routes'));
+app.use('/api/roles', requireAnyRole(['ADMIN']), roleRoutes);
+app.use('/api/permissions', requireAnyRole(['ADMIN']), permissionRoutes);
+app.use('/api/role-permissions', requireAnyRole(['ADMIN']), rolePermissionRoutes);
+app.use('/api/option-capacities', requireAnyRole(['ADMIN', 'APPROVER']), optionCapacityRoutes);
+app.use('/api/option-quota-buckets', requireAnyRole(['ADMIN', 'APPROVER']), optionQuotaBucketRoutes);
+app.use('/api/survey-sessions', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveySessionRoutes);
 
 // Admin dashboard routes (protected by ADMIN_API_KEY)
 app.use('/api/admin', adminRoutes);

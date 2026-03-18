@@ -5,13 +5,60 @@ module.exports = (sequelize, DataTypes) => {
     'User',
     {
       user_id: {
-        type: DataTypes.CHAR(36),
+        type: DataTypes.BIGINT,
         primaryKey: true,
-        defaultValue: DataTypes.UUIDV4,
+        autoIncrement: true,
       },
-      name: DataTypes.STRING,
-      email: { type: DataTypes.STRING, unique: true, validate: { isEmail: true } },
+      name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      email: {
+        type: DataTypes.STRING,
+        unique: true,
+        allowNull: false,
+        validate: { isEmail: true },
+      },
+      phone: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      is_active: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
+      category: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      year: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      section: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      department: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      rank: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      score: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+      },
+      attributes: {
+        type: DataTypes.JSON,
+        allowNull: false,
+        defaultValue: {},
+      },
       created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+      updated_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     },
     {
       tableName: 'users',

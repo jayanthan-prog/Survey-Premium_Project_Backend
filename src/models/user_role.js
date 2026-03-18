@@ -2,19 +2,15 @@ module.exports = (sequelize, DataTypes) => {
   const UserRole = sequelize.define(
     "UserRole",
     {
-      user_role_id: {
-        type: DataTypes.UUID,
-        primaryKey: true,
-        allowNull: false,
-        defaultValue: DataTypes.UUIDV4, // fallback if DB doesn't generate
-      },
       user_id: {
-        type: DataTypes.UUID,
+        type: DataTypes.BIGINT,
         allowNull: false,
+        primaryKey: true,
       },
-      role: {
-        type: DataTypes.STRING(50),
+      role_id: {
+        type: DataTypes.BIGINT,
         allowNull: false,
+        primaryKey: true,
       },
       assigned_at: {
         type: DataTypes.DATE,
@@ -25,19 +21,19 @@ module.exports = (sequelize, DataTypes) => {
     {
       tableName: "user_roles",
       timestamps: false,
-      indexes: [
-        {
-          unique: true,
-          fields: ["user_id", "role"],
-          name: "uniq_user_role",
-        },
-      ],
     }
   );
 
   UserRole.associate = (models) => {
     UserRole.belongsTo(models.User, {
       foreignKey: "user_id",
+      onDelete: "CASCADE",
+      onUpdate: "CASCADE",
+    });
+
+    UserRole.belongsTo(models.Role, {
+      foreignKey: "role_id",
+      targetKey: "role_id",
       onDelete: "CASCADE",
       onUpdate: "CASCADE",
     });
