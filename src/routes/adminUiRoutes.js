@@ -7,9 +7,9 @@ const { requireAdmin, apiControl } = require('../middleware');
 const featureFlags = require('../featureFlags');
 const serverMeta = require('../serverMeta');
 const genController = require('../controllers/generatedApiController');
- const _generatedModels = {};
+const _generatedModels = {};
 
- const adminSessions = new Map();
+const adminSessions = new Map();
 let sessionIdCounter = 1;
 
 /*======================================================================
@@ -853,7 +853,7 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         "/api/survey_participants", "/api/survey-questions", "/api/survey-releases",
         "/api/surveys", "/api/approvals", "/api/roles", "/api/permissions",
         "/api/role-permissions", "/api/option-capacities", "/api/option-quota-buckets",
-        "/api/survey-sessions"
+        "/api/survey-sessions", "/api/allocations"
     ];
 
     let charts = {};

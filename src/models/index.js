@@ -48,6 +48,7 @@ loadModel('UserRole', './user_role');
 // additional commonly used models
 loadModel('AuditLog', './audit_log');
 loadModel('CalendarSlot', './calendar_slot');
+loadModel('AllocationTask', './allocation_task');
 loadModel('ActionPlan', './action_plan');
 loadModel('ActionPlanItem', './action_plan_item');
 // Additional models discovered in migrations
@@ -76,6 +77,7 @@ loadModel('SurveyOptions', './survey_options');
 loadModel('SurveyParticipant', './survey_participant');
 loadModel('SurveyReleaseAudience', './survey_release_audience');
 loadModel('SurveySession', './survey_session');
+loadModel('UserNotification', './user_notification');
 
 // ✅ RUN ASSOCIATIONS *AFTER* ALL MODELS ARE LOADED
 Object.values(db).forEach(model => {

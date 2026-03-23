@@ -52,7 +52,8 @@ const BASE_API_LIST = [
   "/api/role-permissions",
   "/api/option-capacities",
   "/api/option-quota-buckets",
-  "/api/survey-sessions"
+  "/api/survey-sessions",
+  "/api/allocations"
 ];
 
 // Get API list including generated APIs (always active by default)
@@ -71,7 +72,7 @@ const API_LIST = getApiList();
 router.get('/api-status', async (req, res) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const apiList = getApiList(); // Get fresh list including any newly generated APIs
-  
+
   // Get admin key for authenticated status checks
   const adminKey = process.env.ADMIN_API_KEY || '';
   const fetchOptions = adminKey ? {

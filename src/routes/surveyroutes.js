@@ -23,6 +23,7 @@ router.get('/:id/releases', controller.getReleasesForSurvey);
 router.post('/:id/releases', controller.createRelease);
 router.put('/:id/releases/:releaseId', controller.updateRelease);
 router.delete('/:id/releases/:releaseId', controller.deleteRelease);
+router.post('/:id/releases/:releaseId/notify-deadline', controller.sendReleaseDeadlineReminder);
 
 module.exports = router;
 

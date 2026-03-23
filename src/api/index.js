@@ -47,6 +47,8 @@ const rolePermissionRoutes = require('../routes/rolePermissionRoutes');
 const optionCapacityRoutes = require('../routes/optionCapacityRoutes');
 const optionQuotaBucketRoutes = require('../routes/optionQuotaBucketRoutes');
 const surveySessionRoutes = require('../routes/surveySessionRoutes');
+const notificationRoutes = require('../routes/notificationRoutes');
+const allocationTaskRoutes = require('../routes/allocationTaskRoutes');
 const adminRoutes = require('../routes/adminRoutes');
 const adminUiRoutes = require('../routes/adminUiRoutes');
 
@@ -109,6 +111,8 @@ app.use('/api/role-permissions', requireAnyRole(['ADMIN']), rolePermissionRoutes
 app.use('/api/option-capacities', requireAnyRole(['ADMIN', 'APPROVER']), optionCapacityRoutes);
 app.use('/api/option-quota-buckets', requireAnyRole(['ADMIN', 'APPROVER']), optionQuotaBucketRoutes);
 app.use('/api/survey-sessions', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveySessionRoutes);
+app.use('/api/notifications', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), notificationRoutes);
+app.use('/api/allocations', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), allocationTaskRoutes);
 
 // Admin dashboard routes (protected by ADMIN_API_KEY)
 app.use('/api/admin', adminRoutes);

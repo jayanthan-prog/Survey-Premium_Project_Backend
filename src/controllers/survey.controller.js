@@ -1,4 +1,5 @@
 const db = require('../models');
+const { sendSurveyDeadlineReminder, sendSurveyCreationNotification } = require('../utils/surveyNotificationService');
 
 function hasManagePermission(req) {
   const roles = Array.isArray(req.userRoles) ? req.userRoles : [];
@@ -26,6 +27,108 @@ function parseJsonSafe(value, fallback = {}) {
   } catch (_err) {
     return fallback;
   }
+}
+
+function normalizeResponseCategoryLimits(input) {
+  const items = Array.isArray(input) ? input : [];
+  const allowedFields = new Set(['year', 'category', 'department', 'section', 'attributes.gender']);
+
+  return items
+    .map((entry) => {
+      const field = String(entry?.field || '').trim();
+      const value = entry?.value == null ? '' : String(entry.value).trim();
+      const limit = Math.max(0, Number(entry?.limit) || 0);
+      const label = String(entry?.label || `${field}:${value}`).trim();
+
+      if (!allowedFields.has(field) || !value || !limit) return null;
+      return { field, value, limit, label };
+    })
+    .filter(Boolean);
+}
+
+function normalizeComparable(value) {
+  return String(value == null ? '' : value).trim().toLowerCase();
+}
+
+function extractUserCategoryValue(user, field) {
+  if (!user || !field) return '';
+  if (field === 'attributes.gender') {
+    const attributes = parseJsonSafe(user.attributes, {});
+    return attributes && attributes.gender != null ? String(attributes.gender) : '';
+  }
+  if (Object.prototype.hasOwnProperty.call(user, field)) {
+    return user[field] == null ? '' : String(user[field]);
+  }
+  return '';
+}
+
+function buildCategorySqlClause(field) {
+  if (field === 'year') {
+    return 'CAST(u.year AS CHAR) = :expectedValue';
+  }
+  if (field === 'category') {
+    return 'LOWER(COALESCE(u.category, \"\")) = :expectedLower';
+  }
+  if (field === 'department') {
+    return 'LOWER(COALESCE(u.department, \"\")) = :expectedLower';
+  }
+  if (field === 'section') {
+    return 'LOWER(COALESCE(u.section, \"\")) = :expectedLower';
+  }
+  if (field === 'attributes.gender') {
+    return 'LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(u.attributes, \"$.gender\")), \"\")) = :expectedLower';
+  }
+  return null;
+}
+
+async function findReachedCategoryQuota({ surveyId, userId, surveyConfig, transaction }) {
+  const limits = normalizeResponseCategoryLimits(surveyConfig?.responseCategoryLimits || surveyConfig?.responseQuotas);
+  if (!limits.length) return null;
+
+  const [userRows] = await db.sequelize.query(
+    'SELECT user_id, year, category, department, section, attributes FROM users WHERE user_id = :userId LIMIT 1',
+    { replacements: { userId }, transaction }
+  );
+  const user = userRows && userRows[0] ? userRows[0] : null;
+  if (!user) return null;
+
+  for (const limit of limits) {
+    const userValue = extractUserCategoryValue(user, limit.field);
+    if (normalizeComparable(userValue) !== normalizeComparable(limit.value)) {
+      continue;
+    }
+
+    const clause = buildCategorySqlClause(limit.field);
+    if (!clause) continue;
+
+    const [rows] = await db.sequelize.query(
+      `SELECT COUNT(1) AS total
+       FROM survey_participation sp
+       INNER JOIN survey_releases sr ON sr.release_id = sp.release_id
+       INNER JOIN users u ON u.user_id = sp.user_id
+       WHERE sr.survey_id = :surveyId
+         AND sp.status = 'SUBMITTED'
+         AND ${clause}`,
+      {
+        replacements: {
+          surveyId,
+          expectedValue: String(limit.value),
+          expectedLower: normalizeComparable(limit.value),
+        },
+        transaction,
+      }
+    );
+
+    const total = Number(rows && rows[0] ? rows[0].total : 0);
+    if (total >= Number(limit.limit)) {
+      return {
+        ...limit,
+        currentCount: total,
+      };
+    }
+  }
+
+  return null;
 }
 
 function generateOtpCode() {
@@ -310,6 +413,34 @@ async function getActiveGroupIds(groupIds, transaction) {
   return normalized;
 }
 
+async function getActiveUserIds(userIds, transaction) {
+  const normalized = Array.isArray(userIds)
+    ? userIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+    : [];
+
+  if (!normalized.length) {
+    return [];
+  }
+
+  const [userRows] = await db.sequelize.query(
+    'SELECT user_id FROM users WHERE user_id IN (:userIds) AND (is_active = 1 OR is_active IS NULL)',
+    {
+      replacements: { userIds: normalized },
+      transaction,
+    }
+  );
+
+  const activeSet = new Set((userRows || []).map((row) => Number(row.user_id)));
+  const inactiveRequested = normalized.filter((userId) => !activeSet.has(userId));
+  if (inactiveRequested.length) {
+    const error = new Error(`Inactive or unknown users cannot be used: ${inactiveRequested.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
+}
+
 async function getSurveyList(req) {
   const studentView = isStudentRole(req) && !hasManagePermission(req);
   const visibilityClause = studentView ? "WHERE s.status = 'PUBLISHED'" : '';
@@ -385,11 +516,13 @@ exports.createSurvey = async (req, res) => {
       anonymous: Boolean(req.body?.anonymous),
       targetGroups: Array.isArray(req.body?.targetGroups) ? req.body.targetGroups : [],
       targetGroupIds: await getActiveGroupIds(req.body?.targetGroupIds, transaction),
+      targetUserIds: await getActiveUserIds(req.body?.targetUserIds, transaction),
       startDate: req.body?.startDate || null,
       endDate: req.body?.endDate || null,
       groups: Array.isArray(req.body?.groups) ? req.body.groups : [],
       pages: Array.isArray(req.body?.pages) ? req.body.pages : [],
       maxResponses: req.body?.maxResponses == null ? null : Math.max(0, Number(req.body.maxResponses) || 0),
+      responseCategoryLimits: normalizeResponseCategoryLimits(req.body?.responseCategoryLimits || req.body?.responseQuotas),
     };
 
     await db.sequelize.query(
@@ -526,6 +659,18 @@ exports.createSurvey = async (req, res) => {
 
     await transaction.commit();
 
+    try {
+      await sendSurveyCreationNotification({
+        surveyId,
+        surveyTitle: title,
+        actorUserId: req.userId,
+        targetGroupIds: config.targetGroupIds,
+        targetUserIds: config.targetUserIds,
+      });
+    } catch (notificationError) {
+      console.error('[survey.controller] failed to send survey creation notifications', notificationError && (notificationError.message || notificationError));
+    }
+
     const [createdRows] = await db.sequelize.query(
       'SELECT survey_id, code, title, type, version, status, created_at, updated_at FROM surveys WHERE survey_id = :surveyId',
       { replacements: { surveyId } }
@@ -566,6 +711,34 @@ exports.getSurveyById = async (req, res) => {
 
     if (isStudentRole(req) && !hasManagePermission(req) && survey.status !== 'PUBLISHED') {
       return res.status(403).json({ error: 'This survey is not available for students' });
+    }
+
+    const surveyConfig = parseJsonSafe(survey.config, {});
+    if (isStudentRole(req) && !hasManagePermission(req)) {
+      const [existingRows] = await db.sequelize.query(
+        `SELECT sp.participation_id
+         FROM survey_participation sp
+         INNER JOIN survey_releases sr ON sr.release_id = sp.release_id
+         WHERE sr.survey_id = :surveyId AND sp.user_id = :userId
+         ORDER BY sp.created_at DESC
+         LIMIT 1`,
+        { replacements: { surveyId, userId: req.userId } }
+      );
+
+      const hasExisting = Boolean(existingRows && existingRows[0]);
+      if (!hasExisting) {
+        const reachedQuota = await findReachedCategoryQuota({
+          surveyId,
+          userId: req.userId,
+          surveyConfig,
+        });
+        if (reachedQuota) {
+          return res.status(409).json({
+            error: `Response limit reached for your category (${reachedQuota.label})`,
+            quota: reachedQuota,
+          });
+        }
+      }
     }
 
     const [questionRows] = await db.sequelize.query(
@@ -642,7 +815,6 @@ exports.getSurveyById = async (req, res) => {
       { replacements: { surveyId } }
     );
 
-    const surveyConfig = parseJsonSafe(survey.config, {});
     const groups = Array.isArray(surveyConfig.groups) ? surveyConfig.groups : [];
     const pages = Array.isArray(surveyConfig.pages) ? surveyConfig.pages : [];
 
@@ -684,6 +856,9 @@ exports.updateSurvey = async (req, res) => {
       targetGroupIds: Object.prototype.hasOwnProperty.call(req.body || {}, 'targetGroupIds')
         ? await getActiveGroupIds(req.body.targetGroupIds)
         : (currentConfig.targetGroupIds || []),
+      targetUserIds: Object.prototype.hasOwnProperty.call(req.body || {}, 'targetUserIds')
+        ? await getActiveUserIds(req.body.targetUserIds)
+        : (currentConfig.targetUserIds || []),
       startDate: Object.prototype.hasOwnProperty.call(req.body || {}, 'startDate') ? (req.body.startDate || null) : (currentConfig.startDate || null),
       endDate: Object.prototype.hasOwnProperty.call(req.body || {}, 'endDate') ? (req.body.endDate || null) : (currentConfig.endDate || null),
       groups: Object.prototype.hasOwnProperty.call(req.body || {}, 'groups') ? (Array.isArray(req.body.groups) ? req.body.groups : []) : (currentConfig.groups || []),
@@ -691,6 +866,11 @@ exports.updateSurvey = async (req, res) => {
       maxResponses: Object.prototype.hasOwnProperty.call(req.body || {}, 'maxResponses')
         ? (req.body.maxResponses == null ? null : Math.max(0, Number(req.body.maxResponses) || 0))
         : (currentConfig.maxResponses == null ? null : Number(currentConfig.maxResponses)),
+      responseCategoryLimits: Object.prototype.hasOwnProperty.call(req.body || {}, 'responseCategoryLimits')
+        ? normalizeResponseCategoryLimits(req.body.responseCategoryLimits)
+        : (Object.prototype.hasOwnProperty.call(req.body || {}, 'responseQuotas')
+          ? normalizeResponseCategoryLimits(req.body.responseQuotas)
+          : normalizeResponseCategoryLimits(currentConfig.responseCategoryLimits || currentConfig.responseQuotas)),
     };
 
     const surveyType = String(req.body?.type || req.body?.category || '').toUpperCase();
@@ -770,6 +950,7 @@ exports.deleteSurvey = async (req, res) => {
 
 exports.publishSurvey = async (req, res) => {
   const transaction = await db.sequelize.transaction();
+  let committed = false;
 
   try {
     if (!hasManagePermission(req)) {
@@ -847,9 +1028,33 @@ exports.publishSurvey = async (req, res) => {
     );
 
     await transaction.commit();
-    return res.json({ message: 'Survey published successfully', survey_id: surveyId, release_id: releaseId });
+    committed = true;
+
+    let notificationResult;
+    try {
+      notificationResult = await sendSurveyDeadlineReminder({
+        surveyId,
+        releaseId,
+        actorUserId: req.userId,
+      });
+    } catch (notifyErr) {
+      notificationResult = {
+        release_id: releaseId,
+        survey_id: surveyId,
+        error: notifyErr.message || 'Failed to send reminders',
+      };
+    }
+
+    return res.json({
+      message: 'Survey published successfully',
+      survey_id: surveyId,
+      release_id: releaseId,
+      notifications: notificationResult,
+    });
   } catch (err) {
-    await transaction.rollback();
+    if (!committed) {
+      await transaction.rollback();
+    }
     return res.status(500).json({ error: err.message || 'Failed to publish survey' });
   }
 };
@@ -940,6 +1145,7 @@ exports.getReleasesForSurvey = async (req, res) => {
 
 exports.createRelease = async (req, res) => {
   const transaction = await db.sequelize.transaction();
+  let committed = false;
 
   try {
     if (!hasManagePermission(req)) {
@@ -949,7 +1155,7 @@ exports.createRelease = async (req, res) => {
 
     const surveyId = Number(req.params.id);
     const [surveyRows] = await db.sequelize.query(
-      'SELECT survey_id, title FROM surveys WHERE survey_id = :surveyId LIMIT 1',
+      'SELECT survey_id, title, config FROM surveys WHERE survey_id = :surveyId LIMIT 1',
       { replacements: { surveyId }, transaction }
     );
     if (!surveyRows || !surveyRows[0]) {
@@ -980,11 +1186,15 @@ exports.createRelease = async (req, res) => {
       }
     );
 
+    const surveyConfig = parseJsonSafe(surveyRows[0]?.config, {});
     const audienceGroupIds = Array.isArray(req.body?.audience_group_ids)
       ? await getActiveGroupIds(req.body.audience_group_ids, transaction)
-      : [];
+      : await getActiveGroupIds(surveyConfig.targetGroupIds, transaction);
+    const audienceUserIds = Array.isArray(req.body?.audience_user_ids)
+      ? await getActiveUserIds(req.body.audience_user_ids, transaction)
+      : await getActiveUserIds(surveyConfig.targetUserIds, transaction);
 
-    if (audienceGroupIds.length) {
+    if (audienceGroupIds.length || audienceUserIds.length) {
       let nextAudienceId = await nextId('survey_release_audience', 'release_audience_id', transaction);
       for (const groupId of audienceGroupIds) {
         await db.sequelize.query(
@@ -997,19 +1207,79 @@ exports.createRelease = async (req, res) => {
         );
         nextAudienceId += 1;
       }
+
+      for (const userId of audienceUserIds) {
+        await db.sequelize.query(
+          `INSERT INTO survey_release_audience (release_audience_id, release_id, audience_type, ref_id, filter_expr, created_at, updated_at)
+           VALUES (:audienceId, :releaseId, 'USER', :userId, :filterExpr, NOW(), NOW())`,
+          {
+            replacements: { audienceId: nextAudienceId, releaseId, userId, filterExpr: JSON.stringify({}) },
+            transaction,
+          }
+        );
+        nextAudienceId += 1;
+      }
     }
 
     await transaction.commit();
+    committed = true;
+
+    let notificationResult;
+    try {
+      notificationResult = await sendSurveyDeadlineReminder({
+        surveyId,
+        releaseId,
+        actorUserId: req.userId,
+      });
+    } catch (notifyErr) {
+      notificationResult = {
+        release_id: releaseId,
+        survey_id: surveyId,
+        error: notifyErr.message || 'Failed to send reminders',
+      };
+    }
 
     const [createdRows] = await db.sequelize.query(
       'SELECT * FROM survey_releases WHERE release_id = :releaseId LIMIT 1',
       { replacements: { releaseId } }
     );
 
-    return res.status(201).json(createdRows && createdRows[0] ? createdRows[0] : { release_id: releaseId });
+    const payload = createdRows && createdRows[0] ? createdRows[0] : { release_id: releaseId };
+    return res.status(201).json({ ...payload, notifications: notificationResult });
   } catch (err) {
-    await transaction.rollback();
+    if (!committed) {
+      await transaction.rollback();
+    }
     return res.status(500).json({ error: err.message || 'Failed to create release' });
+  }
+};
+
+exports.sendReleaseDeadlineReminder = async (req, res) => {
+  try {
+    if (!hasManagePermission(req)) {
+      return res.status(403).json({ error: 'Only admin or approver can send release reminders' });
+    }
+
+    const surveyId = Number(req.params.id);
+    const releaseId = Number(req.params.releaseId);
+    const customMessage = req.body && typeof req.body.message === 'string'
+      ? req.body.message.trim()
+      : '';
+
+    const result = await sendSurveyDeadlineReminder({
+      surveyId,
+      releaseId,
+      actorUserId: req.userId,
+      customMessage: customMessage || null,
+    });
+
+    return res.json({
+      message: 'Deadline reminder dispatched',
+      ...result,
+    });
+  } catch (err) {
+    const statusCode = Number(err && err.statusCode) || 500;
+    return res.status(statusCode).json({ error: err.message || 'Failed to dispatch release reminder' });
   }
 };
 
@@ -1723,6 +1993,23 @@ exports.submitSurvey = async (req, res) => {
       if (submittedCount >= maxResponses) {
         await transaction.rollback();
         return res.status(409).json({ error: 'Response limit reached for this survey' });
+      }
+    }
+
+    if (!participationId) {
+      const reachedQuota = await findReachedCategoryQuota({
+        surveyId,
+        userId: req.userId,
+        surveyConfig,
+        transaction,
+      });
+
+      if (reachedQuota) {
+        await transaction.rollback();
+        return res.status(409).json({
+          error: `Response limit reached for your category (${reachedQuota.label})`,
+          quota: reachedQuota,
+        });
       }
     }
 
