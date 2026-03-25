@@ -7,13 +7,13 @@ const AuditLog = sequelize.define(
   'AuditLog',
   {
     audit_log_id: {
-      type: DataTypes.CHAR(36),
+      type: DataTypes.BIGINT,
       primaryKey: true,
       allowNull: false,
-      defaultValue: DataTypes.UUIDV4,
+      autoIncrement: true,
     },
     actor_user_id: {
-      type: DataTypes.CHAR(36),
+      type: DataTypes.BIGINT,
       allowNull: true,
     },
     entity_type: {
@@ -21,7 +21,7 @@ const AuditLog = sequelize.define(
       allowNull: false,
     },
     entity_id: {
-      type: DataTypes.CHAR(36),
+      type: DataTypes.BIGINT,
       allowNull: true,
     },
     action: {

@@ -2,6 +2,7 @@
 const db = require('../models');
 const { AuthToken, User } = db;
 const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 const { OAuth2Client } = require('google-auth-library');
 const { getPrimaryRole, resolveUserRoles } = require('../utils/authRoles');
 
@@ -129,6 +130,41 @@ function toIsoOrNull(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+function getDefaultSettings() {
+  return {
+    theme: 'light',
+    language: 'English',
+    timezone: 'GMT+5:30 (India Standard Time)',
+    emailAlerts: true,
+    pushAlerts: true,
+    weeklyDigest: false,
+    profileVisible: true,
+    twoFactorEnabled: false,
+  };
+}
+
+function getUserSettings(user) {
+  const attributes = user && user.attributes && typeof user.attributes === 'object' ? user.attributes : {};
+  const rawSettings = attributes.settings && typeof attributes.settings === 'object' ? attributes.settings : {};
+  return {
+    ...getDefaultSettings(),
+    ...rawSettings,
+  };
+}
+
+function getSanitizedUser(user, role, roles) {
+  return {
+    user_id: user.user_id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone || null,
+    department: user.department || null,
+    role,
+    roles,
+    settings: getUserSettings(user),
+  };
+}
+
 // POST /api/auth/login
 // Body: { identifier | email | user_id, password? }
 exports.login = async (req, res, next) => {
@@ -147,6 +183,20 @@ exports.login = async (req, res, next) => {
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     if (user.is_active === false) {
       return res.status(403).json({ error: 'Account is inactive. Contact an administrator.' });
+    }
+
+    const attributes = user && user.attributes && typeof user.attributes === 'object' ? user.attributes : {};
+    const storedPasswordHash = attributes.password_hash;
+    if (storedPasswordHash) {
+      const password = String(body.password || '');
+      if (!password) {
+        return res.status(401).json({ error: 'Password is required' });
+      }
+
+      const validPassword = await bcrypt.compare(password, storedPasswordHash);
+      if (!validPassword) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
     }
 
     return res.json(await issueAuthTokenForUser(user));
@@ -295,11 +345,28 @@ exports.dashboard = async (req, res, next) => {
        LIMIT 5`
     );
 
+    const [myGroupRows] = await db.sequelize.query(
+      `SELECT gm.group_id, g.name, gm.role_in_group, gm.joined_at
+       FROM group_members gm
+       JOIN \`groups\` g ON g.group_id = gm.group_id
+       WHERE gm.user_id = :userId
+       ORDER BY gm.joined_at DESC
+       LIMIT 10`,
+      { replacements: { userId: req.userId } }
+    );
+
     const recentApprovals = (recentApprovalRows || []).map((row) => ({
       approval_item_id: Number(row.approval_item_id),
       entity_type: row.entity_type,
       status: row.status,
       created_at: toIsoOrNull(row.created_at),
+    }));
+
+    const myGroups = (myGroupRows || []).map((row) => ({
+      group_id: Number(row.group_id),
+      name: row.name,
+      role_in_group: row.role_in_group || null,
+      joined_at: toIsoOrNull(row.joined_at),
     }));
 
     return res.json({
@@ -318,6 +385,7 @@ exports.dashboard = async (req, res, next) => {
       },
       recent_releases: recentReleases,
       recent_approvals: recentApprovals,
+      my_groups: myGroups,
     });
   } catch (err) {
     next(err);
@@ -336,17 +404,7 @@ exports.me = async (req, res, next) => {
 
     const primaryRole = getPrimaryRole(roles);
 
-    return res.json({
-      user: {
-        user_id: user.user_id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone || null,
-        department: user.department || null,
-        role: primaryRole,
-        roles,
-      },
-    });
+    return res.json({ user: getSanitizedUser(user, primaryRole, roles) });
   } catch (err) {
     next(err);
   }
@@ -375,16 +433,102 @@ exports.updateMe = async (req, res, next) => {
 
     return res.json({
       message: 'Profile updated successfully',
-      user: {
-        user_id: user.user_id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone || null,
-        department: user.department || null,
-        role: primaryRole,
-        roles,
+      user: getSanitizedUser(user, primaryRole, roles),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PATCH /api/auth/me/preferences
+exports.updatePreferences = async (req, res, next) => {
+  try {
+    const user = await User.findByPk(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const allowedSettings = [
+      'theme',
+      'language',
+      'timezone',
+      'emailAlerts',
+      'pushAlerts',
+      'weeklyDigest',
+      'profileVisible',
+      'twoFactorEnabled',
+    ];
+
+    const incoming = req.body || {};
+    const settingsUpdate = {};
+    for (const key of allowedSettings) {
+      if (Object.prototype.hasOwnProperty.call(incoming, key)) {
+        settingsUpdate[key] = incoming[key];
+      }
+    }
+
+    const currentAttributes = user.attributes && typeof user.attributes === 'object' ? user.attributes : {};
+    const mergedSettings = {
+      ...getUserSettings(user),
+      ...settingsUpdate,
+    };
+
+    await user.update({
+      attributes: {
+        ...currentAttributes,
+        settings: mergedSettings,
       },
     });
+
+    const roles = Array.isArray(req.userRoles) && req.userRoles.length
+      ? req.userRoles
+      : await resolveUserRoles(req.userId);
+    const primaryRole = getPrimaryRole(roles);
+
+    return res.json({
+      message: 'Preferences updated successfully',
+      user: getSanitizedUser(user, primaryRole, roles),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PATCH /api/auth/me/password
+exports.updatePassword = async (req, res, next) => {
+  try {
+    const user = await User.findByPk(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const currentPassword = String(req.body?.current_password || '');
+    const newPassword = String(req.body?.new_password || '');
+    const confirmPassword = String(req.body?.confirm_password || '');
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ error: 'Password confirmation does not match' });
+    }
+
+    const currentAttributes = user.attributes && typeof user.attributes === 'object' ? user.attributes : {};
+    const existingHash = currentAttributes.password_hash;
+
+    if (existingHash) {
+      const validCurrent = await bcrypt.compare(currentPassword, existingHash);
+      if (!validCurrent) {
+        return res.status(400).json({ error: 'Current password is incorrect' });
+      }
+    }
+
+    const nextHash = await bcrypt.hash(newPassword, 10);
+    await user.update({
+      attributes: {
+        ...currentAttributes,
+        password_hash: nextHash,
+        password_updated_at: new Date().toISOString(),
+      },
+    });
+
+    return res.json({ message: 'Password updated successfully' });
   } catch (err) {
     next(err);
   }

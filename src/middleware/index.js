@@ -16,6 +16,168 @@ function requestLogger(req, res, next) {
   next();
 }
 
+function sanitizePayload(input, depth = 0) {
+  if (depth > 3) return '[truncated]';
+  if (input === null || input === undefined) return input;
+  if (Array.isArray(input)) return input.slice(0, 20).map((item) => sanitizePayload(item, depth + 1));
+  if (typeof input !== 'object') return input;
+
+  const out = {};
+  for (const [key, value] of Object.entries(input)) {
+    const lowered = String(key || '').toLowerCase();
+    if (lowered.includes('password') || lowered.includes('token') || lowered.includes('credential') || lowered.includes('secret')) {
+      out[key] = '[redacted]';
+    } else {
+      out[key] = sanitizePayload(value, depth + 1);
+    }
+  }
+  return out;
+}
+
+function getModuleFromPath(path = '') {
+  const normalized = String(path || '').split('?')[0];
+  const parts = normalized.split('/').filter(Boolean);
+  if (!parts.length) return 'SYSTEM';
+  if (parts[0] === 'api' && parts[1]) return String(parts[1]).toUpperCase();
+  return String(parts[0]).toUpperCase();
+}
+
+function getEntityId(req) {
+  const pathId = Number(req?.params?.id);
+  if (Number.isFinite(pathId)) return pathId;
+
+  const body = req && req.body && typeof req.body === 'object' ? req.body : {};
+  const keys = ['id', 'user_id', 'survey_id', 'release_id', 'approval_item_id', 'allocation_task_id', 'action_plan_id'];
+  for (const key of keys) {
+    const numeric = Number(body[key]);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+
+  return null;
+}
+
+
+function mapHttpAction(method) {
+  const value = String(method || '').toUpperCase();
+  if (value === 'GET') return 'READ';
+  if (value === 'POST') return 'CREATE';
+  if (value === 'PUT' || value === 'PATCH') return 'UPDATE';
+  if (value === 'DELETE') return 'DELETE';
+  return value;
+}
+
+function getActionDescription(method, path) {
+  const pathLower = String(path || '').toLowerCase();
+  const methodUpper = String(method || '').toUpperCase();
+
+  const verbs = {
+    READ: 'viewed',
+    CREATE: 'created',
+    UPDATE: 'updated',
+    DELETE: 'deleted',
+  };
+
+  const methodAction = mapHttpAction(methodUpper);
+  const actionVerb = verbs[methodAction] || methodAction.toLowerCase();
+
+  // Authentication
+  if (pathLower.includes('/auth/login')) return 'User logged in';
+  if (pathLower.includes('/auth/logout')) return 'User logged out';
+  if (pathLower.includes('/auth/register') || pathLower.includes('/auth/signup')) return 'User registered';
+  if (pathLower.includes('/auth/change-password') || pathLower.includes('/change-password')) return 'User changed password';
+
+  // Frequent explicit workflow actions
+  if (pathLower.includes('/publish')) return 'Survey published';
+  if (pathLower.includes('/unpublish')) return 'Survey unpublished';
+  if (pathLower.includes('/archive')) return 'Survey archived';
+  if (pathLower.includes('/freeze')) return 'Entity frozen';
+  if (pathLower.includes('/unfreeze') || pathLower.includes('/resume')) return 'Entity resumed';
+  if (pathLower.includes('/approve')) return 'Item approved';
+  if (pathLower.includes('/reject')) return 'Item rejected';
+  if (pathLower.includes('/assign')) return 'Assignment updated';
+
+  // CRUD labels for major modules requested by user
+  if (pathLower.includes('/users')) return `User ${actionVerb}`;
+  if (pathLower.includes('/groups')) return `Group ${actionVerb}`;
+  if (pathLower.includes('/group-members')) return `Group member ${actionVerb}`;
+  if (pathLower.includes('/surveys')) return `Survey ${actionVerb}`;
+  if (pathLower.includes('/survey-releases')) return `Survey release ${actionVerb}`;
+  if (pathLower.includes('/survey-questions')) return `Survey question ${actionVerb}`;
+  if (pathLower.includes('/survey_options') || pathLower.includes('/survey-options')) return `Survey option ${actionVerb}`;
+  if (pathLower.includes('/survey_answers') || pathLower.includes('/survey-answers')) return `Survey answer ${actionVerb}`;
+  if (pathLower.includes('/survey_participants') || pathLower.includes('/survey-participants')) return `Survey participant ${actionVerb}`;
+
+  // Other modules
+  if (pathLower.includes('/roles')) return `Role ${actionVerb}`;
+  if (pathLower.includes('/permissions')) return `Permission ${actionVerb}`;
+  if (pathLower.includes('/user-roles')) return `User role ${actionVerb}`;
+  if (pathLower.includes('/action-plans')) return `Action plan ${actionVerb}`;
+  if (pathLower.includes('/action-plan-items')) return `Action plan item ${actionVerb}`;
+  if (pathLower.includes('/approvals')) return `Approval ${actionVerb}`;
+  if (pathLower.includes('/calendar-slots')) return `Calendar slot ${actionVerb}`;
+  if (pathLower.includes('/slot-bookings')) return `Slot booking ${actionVerb}`;
+  if (pathLower.includes('/notifications')) return `Notification ${actionVerb}`;
+  if (pathLower.includes('/allocations')) return `Allocation ${actionVerb}`;
+
+  return `${methodAction} operation`;
+}
+function createAuditTrail() {
+  return (req, res, next) => {
+    const startedAt = Date.now();
+    const method = String(req.method || 'GET').toUpperCase();
+    const originalUrl = String(req.originalUrl || req.url || '');
+    const pathOnly = originalUrl.split('?')[0];
+
+    // Avoid noisy self-auditing endpoints.
+    if (pathOnly.startsWith('/api/audit-logs') || pathOnly.startsWith('/api/docs')) {
+      return next();
+    }
+
+    const requestBody = sanitizePayload(req.body);
+    const query = sanitizePayload(req.query || {});
+
+
+    res.on('finish', async () => {
+      try {
+        const db = require('../models');
+        const AuditLog = db.AuditLog;
+        if (!AuditLog) return;
+
+        const moduleName = getModuleFromPath(pathOnly);
+        const statusCode = Number(res.statusCode || 0);
+        const outcome = statusCode >= 500 ? 'ERROR' : statusCode >= 400 ? 'WARNING' : 'SUCCESS';
+        const actionDescription = getActionDescription(method, pathOnly);
+        const httpAction = mapHttpAction(method);
+
+        await AuditLog.create({
+          actor_user_id: Number(req.userId) || null,
+          entity_type: moduleName,
+          entity_id: getEntityId(req),
+          action: httpAction,
+          old_value: null,
+          new_value: {
+            module: moduleName,
+            method,
+            path: pathOnly,
+            query,
+            request_body: requestBody,
+            status_code: statusCode,
+            outcome,
+            response_time_ms: Date.now() - startedAt,
+            description: actionDescription,
+            timestamp: new Date().toISOString(),
+          },
+          ip_address: req.ip || req.headers['x-forwarded-for'] || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (_err) {
+        // Never block API response on audit failures.
+      }
+    });
+    next();
+  };
+}
+
 const featureFlags = require('../featureFlags');
 
 // --- NEW: API GATEKEEPER MIDDLEWARE ---
@@ -172,6 +334,7 @@ function errorHandler(err, req, res, next) {
 
 module.exports = {
   requestLogger,
+  createAuditTrail,
   requireAuth,
   requireAnyRole,
   requireAdmin,

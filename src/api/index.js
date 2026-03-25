@@ -13,7 +13,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cors());
 
 // Middleware
-const { requestLogger, notFound, errorHandler, apiGatekeeper, requireAuth, requireAnyRole } = require('../middleware');
+const { requestLogger, createAuditTrail, notFound, errorHandler, apiGatekeeper, requireAuth, requireAnyRole } = require('../middleware');
 app.use(requestLogger);
 
 // Route modules
@@ -71,6 +71,7 @@ try {
 // Swagger UI route (API docs)
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.get('/api/docs.json', (req, res) => res.json(swaggerDocument));
+app.use('/api', createAuditTrail());
 
 // Auth routes (login/logout) - mounted before gatekeeper
 app.use('/api/auth', authRoutes);

@@ -13,6 +13,8 @@ router.post('/logout', requireAuth, authController.logout);
 // Current user profile
 router.get('/me', requireAuth, authController.me);
 router.patch('/me', requireAuth, authController.updateMe);
+router.patch('/me/preferences', requireAuth, authController.updatePreferences);
+router.patch('/me/password', requireAuth, authController.updatePassword);
 router.get('/dashboard', requireAuth, authController.dashboard);
 
 module.exports = router;
