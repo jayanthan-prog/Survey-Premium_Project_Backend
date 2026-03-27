@@ -24,8 +24,29 @@ function formatDeadline(deadline) {
     });
 }
 
-function buildReminderMailPayload({ user, release, body, deadlineText, portalUrl }) {
-    const subject = 'Reminder: Complete survey before deadline';
+function normalizeMailDraft(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    return {
+        subject: String(source.subject || '').trim(),
+        body: String(source.body || '').trim(),
+    };
+}
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function textToHtml(text) {
+    return escapeHtml(text).replace(/\n/g, '<br/>');
+}
+
+function buildReminderMailPayload({ user, release, subject, body, deadlineText, portalUrl }) {
+    const safeSubject = String(subject || 'Reminder: Complete survey before deadline');
     const text = [
         `Hello ${user.name || 'User'},`,
         '',
@@ -47,7 +68,7 @@ function buildReminderMailPayload({ user, release, body, deadlineText, portalUrl
             <p><a href="${portalUrl}">Open Survey Portal</a></p>
         `;
 
-    return { subject, text, html };
+    return { subject: safeSubject, text, html };
 }
 
 async function resolveActiveUsersByIds(userIds = []) {
@@ -250,7 +271,7 @@ async function resolveUsersByTargeting({ targetGroupIds, targetUserIds }) {
     return resolveActiveUsersByIds(Array.from(resolvedUserIds));
 }
 
-async function sendSurveyDeadlineReminder({ surveyId, releaseId, actorUserId, customMessage }) {
+async function sendSurveyDeadlineReminder({ surveyId, releaseId, actorUserId, customMessage, customSubject }) {
     const { release, users } = await resolveTargetUsersForRelease(surveyId, releaseId);
 
     if (!users.length) {
@@ -266,7 +287,7 @@ async function sendSurveyDeadlineReminder({ surveyId, releaseId, actorUserId, cu
     }
 
     const deadlineText = formatDeadline(release.closes_at);
-    const title = `Survey reminder: ${release.survey_title}`;
+    const title = customSubject || `Survey reminder: ${release.survey_title}`;
     const body = customMessage || `Please complete "${release.survey_title}" before ${deadlineText}.`;
 
     let portalNotificationsCreated = 0;
@@ -310,6 +331,7 @@ async function sendSurveyDeadlineReminder({ surveyId, releaseId, actorUserId, cu
         const { subject, text, html } = buildReminderMailPayload({
             user,
             release,
+            subject: title,
             body,
             deadlineText,
             portalUrl,
@@ -340,9 +362,10 @@ async function sendSurveyDeadlineReminder({ surveyId, releaseId, actorUserId, cu
     };
 }
 
-async function sendSurveyDeadlineEmailReminder({ surveyId, releaseId, customMessage }) {
+async function sendSurveyDeadlineEmailReminder({ surveyId, releaseId, customMessage, customSubject }) {
     const { release, users } = await resolveTargetUsersForRelease(surveyId, releaseId);
     const deadlineText = formatDeadline(release.closes_at);
+    const subjectLine = customSubject || `Survey reminder: ${release.survey_title}`;
     const body = customMessage || `Please complete "${release.survey_title}" before ${deadlineText}.`;
     const portalUrl = `${process.env.PORTAL_BASE_URL || 'http://localhost:5173'}/student/surveys`;
 
@@ -358,6 +381,7 @@ async function sendSurveyDeadlineEmailReminder({ surveyId, releaseId, customMess
         const { subject, text, html } = buildReminderMailPayload({
             user,
             release,
+            subject: subjectLine,
             body,
             deadlineText,
             portalUrl,
@@ -387,7 +411,7 @@ async function sendSurveyDeadlineEmailReminder({ surveyId, releaseId, customMess
     };
 }
 
-async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUserId, targetGroupIds, targetUserIds }) {
+async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUserId, targetGroupIds, targetUserIds, mailDraft, surveyDeadline }) {
     const users = await resolveUsersByTargeting({ targetGroupIds, targetUserIds });
 
     const [surveyRows] = await db.sequelize.query(
@@ -420,8 +444,13 @@ async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUser
         };
     }
 
-    const title = `New survey assigned: ${surveyTitle}`;
-    const body = `A new survey \"${surveyTitle}\" has been created for you. Please check the portal and submit your response.`;
+    const deadlineText = formatDeadline(surveyDeadline);
+    const defaultBody = surveyDeadline
+        ? `A new survey "${surveyTitle}" has been created for you. Please submit your response before ${deadlineText}.`
+        : `A new survey "${surveyTitle}" has been created for you. Please check the portal and submit your response.`;
+    const normalizedMailDraft = normalizeMailDraft(mailDraft);
+    const title = normalizedMailDraft.subject || `New survey assigned: ${surveyTitle}`;
+    const body = normalizedMailDraft.body || defaultBody;
 
     let portalNotificationsCreated = 0;
     try {
@@ -458,20 +487,18 @@ async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUser
             continue;
         }
 
-        const subject = `New survey assigned: ${surveyTitle}`;
+        const subject = title;
         const text = [
             `Hello ${user.name || 'User'},`,
             '',
-            `A new survey has been assigned to you: ${surveyTitle}`,
-            'Please submit your response from the portal.',
+            body,
             '',
             `Open portal: ${portalUrl}`,
         ].join('\n');
 
         const html = `
             <p>Hello ${user.name || 'User'},</p>
-            <p>A new survey has been assigned to you: <strong>${surveyTitle}</strong>.</p>
-            <p>Please submit your response from the portal.</p>
+            <p>${textToHtml(body)}</p>
             <p><a href="${portalUrl}">Open Survey Portal</a></p>
         `;
 

@@ -16,6 +16,14 @@ function parseJsonSafe(value, fallback = {}) {
     }
 }
 
+function normalizeMailDraft(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    return {
+        subject: String(source.subject || '').trim(),
+        body: String(source.body || '').trim(),
+    };
+}
+
 function toDateOnlyKey(date) {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -79,8 +87,9 @@ async function processDeadlineRemindersTick() {
     const now = new Date();
 
     const [releaseRows] = await db.sequelize.query(
-        `SELECT sr.release_id, sr.survey_id, sr.name, sr.closes_at, sr.release_config
+        `SELECT sr.release_id, sr.survey_id, sr.name, sr.closes_at, sr.release_config, s.config AS survey_config
      FROM survey_releases sr
+      INNER JOIN surveys s ON s.survey_id = sr.survey_id
      WHERE sr.closes_at IS NOT NULL
        AND (sr.is_frozen = 0 OR sr.is_frozen IS NULL)
        AND sr.closes_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
@@ -93,17 +102,20 @@ async function processDeadlineRemindersTick() {
 
         const dateKey = toDateOnlyKey(closesAt);
         let releaseConfig = parseJsonSafe(release.release_config, {});
+        const surveyConfig = parseJsonSafe(release.survey_config, {});
+        const mailDraft = normalizeMailDraft(surveyConfig.mailDraft);
         const reminderLog = (releaseConfig.deadlineReminderLog || {})[dateKey] || {};
 
         for (const slot of buildDeadlineSlots(closesAt)) {
             if (reminderLog[slot.key] && reminderLog[slot.key].sent_at) continue;
             if (!shouldSendNow(now, slot.at)) continue;
 
-            const message = `${slot.label}: please complete your pending survey before the deadline.`;
+            const message = mailDraft.body || `${slot.label}: please complete your pending survey before the deadline.`;
             try {
                 const result = await sendSurveyDeadlineEmailReminder({
                     surveyId: Number(release.survey_id),
                     releaseId: Number(release.release_id),
+                    customSubject: mailDraft.subject || null,
                     customMessage: message,
                 });
 
