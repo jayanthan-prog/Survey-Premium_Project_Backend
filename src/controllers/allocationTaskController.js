@@ -1,6 +1,8 @@
 'use strict';
 
 const db = require('../models');
+const { Op } = require('sequelize');
+const { isAdmin, isApproverScoped } = require('../utils/ownershipScope');
 
 const AllocationTask = db.AllocationTask;
 const User = db.User;
@@ -29,8 +31,16 @@ function mapTask(task) {
 
 exports.getAllAllocationTasks = async (req, res) => {
     try {
-        const isManager = hasManagerAccess(req.userRoles || []);
-        const where = isManager ? {} : { assigned_to: req.userId };
+        const where = isAdmin(req)
+            ? {}
+            : (isApproverScoped(req)
+                ? {
+                    [Op.or]: [
+                        { assigned_by: req.userId },
+                        { assigned_to: req.userId },
+                    ],
+                }
+                : { assigned_to: req.userId });
 
         const tasks = await AllocationTask.findAll({
             where,
@@ -50,7 +60,8 @@ exports.getAllAllocationTasks = async (req, res) => {
 
 exports.getAllocationTaskById = async (req, res) => {
     try {
-        const isManager = hasManagerAccess(req.userRoles || []);
+        const adminUser = isAdmin(req);
+        const approverScopedUser = isApproverScoped(req);
 
         const task = await AllocationTask.findByPk(req.params.id, {
             include: [
@@ -60,7 +71,14 @@ exports.getAllocationTaskById = async (req, res) => {
         });
 
         if (!task) return res.status(404).json({ error: 'Allocation not found' });
-        if (!isManager && Number(task.assigned_to) !== Number(req.userId)) {
+        if (
+            approverScopedUser
+            && Number(task.assigned_by) !== Number(req.userId)
+            && Number(task.assigned_to) !== Number(req.userId)
+        ) {
+            return res.status(403).json({ error: 'Approvers can only access allocations they created or that are assigned to them' });
+        }
+        if (!adminUser && !approverScopedUser && Number(task.assigned_to) !== Number(req.userId)) {
             return res.status(403).json({ error: 'Forbidden' });
         }
 
@@ -121,6 +139,10 @@ exports.updateAllocationTask = async (req, res) => {
         const task = await AllocationTask.findByPk(req.params.id);
         if (!task) return res.status(404).json({ error: 'Allocation not found' });
 
+        if (isApproverScoped(req) && Number(task.assigned_by) !== Number(req.userId)) {
+            return res.status(403).json({ error: 'Approvers can only update allocations they created' });
+        }
+
         const updates = {
             title: Object.prototype.hasOwnProperty.call(req.body || {}, 'title') ? req.body.title : task.title,
             allocation_type: Object.prototype.hasOwnProperty.call(req.body || {}, 'allocation_type') ? String(req.body.allocation_type || '').toUpperCase() : task.allocation_type,
@@ -158,6 +180,10 @@ exports.deleteAllocationTask = async (req, res) => {
 
         const task = await AllocationTask.findByPk(req.params.id);
         if (!task) return res.status(404).json({ error: 'Allocation not found' });
+
+        if (isApproverScoped(req) && Number(task.assigned_by) !== Number(req.userId)) {
+            return res.status(403).json({ error: 'Approvers can only delete allocations they created' });
+        }
 
         await task.destroy();
         res.json({ message: 'Allocation deleted successfully' });

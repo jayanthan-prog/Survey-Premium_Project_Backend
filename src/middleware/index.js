@@ -56,6 +56,61 @@ function getEntityId(req) {
   return null;
 }
 
+function getClientIpAddress(req) {
+  const normalizeIp = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+
+    const withoutPort = raw.startsWith('[')
+      ? raw.replace(/^\[|\]$/g, '')
+      : raw.replace(/:\d+$/, '');
+
+    return withoutPort.replace(/^::ffff:/i, '');
+  };
+
+  const forwarded = req && req.headers ? req.headers['x-forwarded-for'] : null;
+  if (forwarded) {
+    const first = String(forwarded)
+      .split(',')
+      .map((value) => value.trim())
+      .find(Boolean);
+    if (first) return normalizeIp(first);
+  }
+
+  const realIp = req && req.headers ? req.headers['x-real-ip'] : null;
+  if (realIp && String(realIp).trim()) {
+    return normalizeIp(realIp);
+  }
+
+  const clientPublicIp = req && req.headers ? req.headers['x-client-public-ip'] : null;
+  if (clientPublicIp && String(clientPublicIp).trim()) {
+    return normalizeIp(clientPublicIp);
+  }
+
+  return normalizeIp((req && (req.ip || (req.socket && req.socket.remoteAddress))) || null);
+}
+
+async function createAuditLogSafe(AuditLog, db, payload) {
+  try {
+    await AuditLog.create(payload);
+    return;
+  } catch (err) {
+    const message = String(err && err.message ? err.message : '');
+    const needsManualId = message.includes("audit_log_id") && message.toLowerCase().includes('default value');
+    if (!needsManualId) {
+      throw err;
+    }
+
+    const [rows] = await db.sequelize.query('SELECT COALESCE(MAX(audit_log_id), 0) + 1 AS nextValue FROM audit_logs');
+    const nextAuditLogId = Number(rows && rows[0] ? rows[0].nextValue : 1);
+
+    await AuditLog.create({
+      ...payload,
+      audit_log_id: nextAuditLogId,
+    });
+  }
+}
+
 
 function mapHttpAction(method) {
   const value = String(method || '').toUpperCase();
@@ -133,6 +188,11 @@ function createAuditTrail() {
       return next();
     }
 
+    // Log only write operations (CREATE/UPDATE/DELETE).
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      return next();
+    }
+
     const requestBody = sanitizePayload(req.body);
     const query = sanitizePayload(req.query || {});
 
@@ -149,7 +209,7 @@ function createAuditTrail() {
         const actionDescription = getActionDescription(method, pathOnly);
         const httpAction = mapHttpAction(method);
 
-        await AuditLog.create({
+        await createAuditLogSafe(AuditLog, db, {
           actor_user_id: Number(req.userId) || null,
           entity_type: moduleName,
           entity_id: getEntityId(req),
@@ -167,11 +227,12 @@ function createAuditTrail() {
             description: actionDescription,
             timestamp: new Date().toISOString(),
           },
-          ip_address: req.ip || req.headers['x-forwarded-for'] || null,
+          ip_address: getClientIpAddress(req),
           user_agent: req.headers['user-agent'] || null,
         });
-      } catch (_err) {
+      } catch (err) {
         // Never block API response on audit failures.
+        console.error('[audit] failed to persist audit log', err && (err.message || err));
       }
     });
     next();

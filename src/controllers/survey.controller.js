@@ -1,14 +1,33 @@
 const db = require('../models');
 const { sendSurveyDeadlineReminder, sendSurveyCreationNotification } = require('../utils/surveyNotificationService');
+const { hasManageAccess, isApproverScoped, canAccessSurvey } = require('../utils/ownershipScope');
 
 function hasManagePermission(req) {
-  const roles = Array.isArray(req.userRoles) ? req.userRoles : [];
-  return roles.includes('ADMIN') || roles.includes('APPROVER');
+  return hasManageAccess(req);
 }
 
 function isStudentRole(req) {
   const roles = Array.isArray(req.userRoles) ? req.userRoles : [];
   return roles.includes('USER') || roles.includes('STUDENT');
+}
+
+async function ensureSurveyManageAccess(req, surveyId, res, transaction) {
+  if (!hasManagePermission(req)) {
+    if (transaction) await transaction.rollback();
+    res.status(403).json({ error: 'Only admin or approver can manage surveys' });
+    return false;
+  }
+
+  if (isApproverScoped(req)) {
+    const allowed = await canAccessSurvey(req, db, surveyId, transaction);
+    if (!allowed) {
+      if (transaction) await transaction.rollback();
+      res.status(403).json({ error: 'Approvers can only access surveys they created' });
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function toDbDateOrNull(value) {
@@ -136,15 +155,14 @@ function generateOtpCode() {
 }
 
 function mapQuestionType(value) {
-  const normalized = String(value || '').toLowerCase();
-  if (normalized === 'single_choice') return 'SINGLE';
-  if (normalized === 'multiple_choice') return 'MULTI';
-  if (normalized === 'rating') return 'SCALE';
-  if (normalized === 'matrix') return 'MATRIX';
-  if (normalized === 'dropdown') return 'DROPDOWN';
-  if (normalized === 'date') return 'DATE';
-  if (normalized === 'number') return 'NUMBER';
-  if (normalized === 'file_upload') return 'TEXT';
+  const normalized = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+
+  // DB enum for survey_questions.question_type supports only: SINGLE, MULTI, TEXT, SCALE.
+  if (normalized === 'single_choice' || normalized === 'single') return 'SINGLE';
+  if (normalized === 'multiple_choice' || normalized === 'multi') return 'MULTI';
+  if (normalized === 'rating' || normalized === 'scale') return 'SCALE';
+
+  // Keep all other specialized frontend types represented as TEXT + config.answerType.
   return 'TEXT';
 }
 
@@ -443,7 +461,19 @@ async function getActiveUserIds(userIds, transaction) {
 
 async function getSurveyList(req) {
   const studentView = isStudentRole(req) && !hasManagePermission(req);
-  const visibilityClause = studentView ? "WHERE s.status = 'PUBLISHED'" : '';
+  const whereClauses = [];
+  const replacements = {};
+
+  if (studentView) {
+    whereClauses.push("s.status = 'PUBLISHED'");
+  }
+
+  if (isApproverScoped(req)) {
+    whereClauses.push('s.created_by = :currentUserId');
+    replacements.currentUserId = req.userId;
+  }
+
+  const visibilityClause = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
   const [rows] = await db.sequelize.query(
     `SELECT
@@ -480,7 +510,8 @@ async function getSurveyList(req) {
       LIMIT 1
     )
     ${visibilityClause}
-    ORDER BY s.updated_at DESC, s.created_at DESC`
+    ORDER BY s.updated_at DESC, s.created_at DESC`,
+    { replacements }
   );
 
   return rows || [];
@@ -709,6 +740,10 @@ exports.getSurveyById = async (req, res) => {
       return res.status(404).json({ message: 'Survey not found' });
     }
 
+    if (hasManagePermission(req) && isApproverScoped(req) && Number(survey.created_by) !== Number(req.userId)) {
+      return res.status(403).json({ error: 'Approvers can only access surveys they created' });
+    }
+
     if (isStudentRole(req) && !hasManagePermission(req) && survey.status !== 'PUBLISHED') {
       return res.status(403).json({ error: 'This survey is not available for students' });
     }
@@ -832,11 +867,11 @@ exports.getSurveyById = async (req, res) => {
 
 exports.updateSurvey = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can update surveys' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const [rows] = await db.sequelize.query('SELECT survey_id, config FROM surveys WHERE survey_id = :surveyId LIMIT 1', {
       replacements: { surveyId },
     });
@@ -909,12 +944,11 @@ exports.deleteSurvey = async (req, res) => {
   const transaction = await db.sequelize.transaction();
 
   try {
-    if (!hasManagePermission(req)) {
-      await transaction.rollback();
-      return res.status(403).json({ error: 'Only admin or approver can delete surveys' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res, transaction))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     await db.sequelize.query('DELETE FROM survey_question_options WHERE question_id IN (SELECT question_id FROM survey_questions WHERE survey_id = :surveyId)', {
       replacements: { surveyId },
       transaction,
@@ -953,12 +987,11 @@ exports.publishSurvey = async (req, res) => {
   let committed = false;
 
   try {
-    if (!hasManagePermission(req)) {
-      await transaction.rollback();
-      return res.status(403).json({ error: 'Only admin or approver can publish surveys' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res, transaction))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const [surveyRows] = await db.sequelize.query('SELECT survey_id, title, config FROM surveys WHERE survey_id = :surveyId LIMIT 1', {
       replacements: { surveyId },
       transaction,
@@ -1061,11 +1094,11 @@ exports.publishSurvey = async (req, res) => {
 
 exports.unpublishSurvey = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can unpublish surveys' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     await db.sequelize.query(
       `UPDATE surveys
        SET status = 'DRAFT', updated_at = NOW()
@@ -1087,11 +1120,11 @@ exports.unpublishSurvey = async (req, res) => {
 
 exports.archiveSurvey = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can archive surveys' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     await db.sequelize.query(
       `UPDATE surveys
        SET status = 'ARCHIVED', updated_at = NOW()
@@ -1107,11 +1140,10 @@ exports.archiveSurvey = async (req, res) => {
 
 exports.getReleasesForSurvey = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can view releases' });
-    }
-
     const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
+    }
 
     const [rows] = await db.sequelize.query(
       `SELECT
@@ -1148,12 +1180,11 @@ exports.createRelease = async (req, res) => {
   let committed = false;
 
   try {
-    if (!hasManagePermission(req)) {
-      await transaction.rollback();
-      return res.status(403).json({ error: 'Only admin or approver can create releases' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res, transaction))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const [surveyRows] = await db.sequelize.query(
       'SELECT survey_id, title, config FROM surveys WHERE survey_id = :surveyId LIMIT 1',
       { replacements: { surveyId }, transaction }
@@ -1256,11 +1287,11 @@ exports.createRelease = async (req, res) => {
 
 exports.sendReleaseDeadlineReminder = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can send release reminders' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const releaseId = Number(req.params.releaseId);
     const customMessage = req.body && typeof req.body.message === 'string'
       ? req.body.message.trim()
@@ -1285,11 +1316,11 @@ exports.sendReleaseDeadlineReminder = async (req, res) => {
 
 exports.updateRelease = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can update releases' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const releaseId = Number(req.params.releaseId);
 
     const [rows] = await db.sequelize.query(
@@ -1343,12 +1374,11 @@ exports.deleteRelease = async (req, res) => {
   const transaction = await db.sequelize.transaction();
 
   try {
-    if (!hasManagePermission(req)) {
-      await transaction.rollback();
-      return res.status(403).json({ error: 'Only admin or approver can delete releases' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res, transaction))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const releaseId = Number(req.params.releaseId);
 
     const [rows] = await db.sequelize.query(
@@ -1403,11 +1433,11 @@ exports.deleteRelease = async (req, res) => {
 
 exports.generateSurveyOtp = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can generate survey OTPs' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const [rows] = await db.sequelize.query(
       'SELECT survey_id, config FROM surveys WHERE survey_id = :surveyId LIMIT 1',
       { replacements: { surveyId } }
@@ -1457,11 +1487,11 @@ exports.generateSurveyOtp = async (req, res) => {
 
 exports.getSurveyReport = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can view survey reports' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const [surveyRows] = await db.sequelize.query(
       `SELECT s.*, u.name AS created_by_name
        FROM surveys s
@@ -1678,11 +1708,11 @@ exports.getSurveyReport = async (req, res) => {
 
 exports.getSurveyResponses = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can view survey responses' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const search = String(req.query.search || '').trim();
     const snapshot = await getSurveyResponseSnapshot(surveyId, search);
     if (!snapshot.survey) {
@@ -1709,11 +1739,11 @@ exports.getSurveyResponses = async (req, res) => {
 
 exports.getSurveyResponseById = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can view survey responses' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const participationId = Number(req.params.participationId);
     const snapshot = await getSurveyResponseSnapshot(surveyId);
     if (!snapshot.survey) {
@@ -1749,12 +1779,11 @@ exports.getSurveyResponseById = async (req, res) => {
 exports.deleteSurveyResponse = async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
-    if (!hasManagePermission(req)) {
-      await transaction.rollback();
-      return res.status(403).json({ error: 'Only admin or approver can delete survey responses' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res, transaction))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const participationId = Number(req.params.participationId);
 
     const [rows] = await db.sequelize.query(
@@ -1790,11 +1819,11 @@ exports.deleteSurveyResponse = async (req, res) => {
 
 exports.exportSurveyResponses = async (req, res) => {
   try {
-    if (!hasManagePermission(req)) {
-      return res.status(403).json({ error: 'Only admin or approver can export survey responses' });
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res))) {
+      return;
     }
 
-    const surveyId = Number(req.params.id);
     const format = String(req.query.format || 'csv').toLowerCase();
     const snapshot = await getSurveyResponseSnapshot(surveyId, String(req.query.search || ''));
     if (!snapshot.survey) {

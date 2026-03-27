@@ -10,7 +10,32 @@ const swaggerDocument = require('../swagger/swagger.json');
 app.use(express.json());
 // accept URL-encoded form bodies for the admin UI login form
 app.use(express.urlencoded({ extended: false }));
-app.use(cors());
+
+const configuredCorsOrigins = String(process.env.CORS_ALLOWED_ORIGINS || '')
+	.split(',')
+	.map((value) => value.trim())
+	.filter(Boolean);
+
+const defaultCorsOrigins = [
+	'http://localhost:5173',
+	'http://127.0.0.1:5173',
+];
+
+const allowedOrigins = new Set([...defaultCorsOrigins, ...configuredCorsOrigins]);
+
+app.use(
+	cors({
+		origin(origin, callback) {
+			// Allow non-browser clients (curl, Postman, server-to-server)
+			if (!origin) return callback(null, true);
+			if (allowedOrigins.has(origin)) return callback(null, true);
+			return callback(new Error(`CORS blocked for origin: ${origin}`));
+		},
+		methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+		allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Public-IP'],
+		credentials: true,
+	})
+);
 
 // Middleware
 const { requestLogger, createAuditTrail, notFound, errorHandler, apiGatekeeper, requireAuth, requireAnyRole } = require('../middleware');

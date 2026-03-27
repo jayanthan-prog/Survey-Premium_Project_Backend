@@ -75,7 +75,26 @@ exports.getAuditLogById = async (req, res) => {
 
 exports.createAuditLog = async (req, res) => {
   try {
-    const newLog = await AuditLog.create(req.body);
+    let payload = { ...(req.body || {}) };
+
+    try {
+      const newLog = await AuditLog.create(payload);
+      return res.status(201).json(newLog);
+    } catch (createErr) {
+      const message = String(createErr && createErr.message ? createErr.message : '');
+      const needsManualId = message.includes('audit_log_id') && message.toLowerCase().includes('default value');
+      if (!needsManualId) {
+        throw createErr;
+      }
+
+      const [rows] = await AuditLog.sequelize.query('SELECT COALESCE(MAX(audit_log_id), 0) + 1 AS nextValue FROM audit_logs');
+      payload = {
+        ...payload,
+        audit_log_id: Number(rows && rows[0] ? rows[0].nextValue : 1),
+      };
+    }
+
+    const newLog = await AuditLog.create(payload);
     res.status(201).json(newLog);
   } catch (err) {
     console.error(err);

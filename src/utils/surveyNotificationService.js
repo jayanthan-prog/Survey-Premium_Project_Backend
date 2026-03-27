@@ -2,6 +2,7 @@
 
 const db = require('../models');
 const { sendMail } = require('./mailer');
+const { resolveUserRoles } = require('./authRoles');
 
 function parseJsonSafe(value, fallback = {}) {
     if (!value) return fallback;
@@ -49,9 +50,57 @@ function buildReminderMailPayload({ user, release, body, deadlineText, portalUrl
     return { subject, text, html };
 }
 
+async function resolveActiveUsersByIds(userIds = []) {
+    const normalized = Array.from(new Set(
+        (Array.isArray(userIds) ? userIds : [])
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0)
+    ));
+
+    if (!normalized.length) return [];
+
+    const [userRows] = await db.sequelize.query(
+        `SELECT user_id, name, email
+         FROM users
+         WHERE user_id IN (:userIds)
+           AND (is_active = 1 OR is_active IS NULL)
+         ORDER BY user_id ASC`,
+        { replacements: { userIds: normalized } }
+    );
+
+    return userRows || [];
+}
+
+async function resolveResponsibleApproverIds(candidateIds = []) {
+    const normalized = Array.from(new Set(
+        (Array.isArray(candidateIds) ? candidateIds : [])
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0)
+    ));
+
+    if (!normalized.length) return [];
+
+    const approverIds = [];
+    for (const userId of normalized) {
+        const roles = await resolveUserRoles(userId);
+        if (Array.isArray(roles) && (roles.includes('APPROVER') || roles.includes('ADMIN'))) {
+            approverIds.push(userId);
+        }
+    }
+
+    return approverIds;
+}
+
 async function resolveTargetUsersForRelease(surveyId, releaseId) {
     const [releaseRows] = await db.sequelize.query(
-        `SELECT sr.release_id, sr.name, sr.closes_at, s.title AS survey_title, s.config AS survey_config
+        `SELECT
+            sr.release_id,
+            sr.name,
+            sr.closes_at,
+            sr.created_by AS release_created_by,
+            s.title AS survey_title,
+            s.config AS survey_config,
+            s.created_by AS survey_created_by
      FROM survey_releases sr
      INNER JOIN surveys s ON s.survey_id = sr.survey_id
      WHERE sr.release_id = :releaseId AND sr.survey_id = :surveyId
@@ -114,6 +163,9 @@ async function resolveTargetUsersForRelease(surveyId, releaseId) {
         const fallbackGroupIds = Array.isArray(surveyConfig.targetGroupIds)
             ? surveyConfig.targetGroupIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
             : [];
+        const fallbackUserIds = Array.isArray(surveyConfig.targetUserIds)
+            ? surveyConfig.targetUserIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+            : [];
 
         if (fallbackGroupIds.length) {
             const [groupUserRows] = await db.sequelize.query(
@@ -129,18 +181,19 @@ async function resolveTargetUsersForRelease(surveyId, releaseId) {
                 const userId = Number(row.user_id);
                 if (Number.isInteger(userId) && userId > 0) targetUserIds.add(userId);
             }
-        } else {
-            const [allActiveRows] = await db.sequelize.query(
-                `SELECT user_id
-         FROM users
-         WHERE is_active = 1 OR is_active IS NULL`
-            );
-
-            for (const row of allActiveRows || []) {
-                const userId = Number(row.user_id);
-                if (Number.isInteger(userId) && userId > 0) targetUserIds.add(userId);
-            }
         }
+
+        for (const userId of fallbackUserIds) {
+            targetUserIds.add(userId);
+        }
+    }
+
+    const approverIds = await resolveResponsibleApproverIds([
+        release.survey_created_by,
+        release.release_created_by,
+    ]);
+    for (const approverId of approverIds) {
+        targetUserIds.add(approverId);
     }
 
     if (!targetUserIds.size) {
@@ -150,16 +203,7 @@ async function resolveTargetUsersForRelease(surveyId, releaseId) {
         };
     }
 
-    const [userRows] = await db.sequelize.query(
-        `SELECT user_id, name, email
-     FROM users
-     WHERE user_id IN (:userIds)
-       AND (is_active = 1 OR is_active IS NULL)
-     ORDER BY user_id ASC`,
-        {
-            replacements: { userIds: Array.from(targetUserIds) },
-        }
-    );
+    const userRows = await resolveActiveUsersByIds(Array.from(targetUserIds));
 
     return {
         release,
@@ -203,18 +247,7 @@ async function resolveUsersByTargeting({ targetGroupIds, targetUserIds }) {
         return [];
     }
 
-    const [userRows] = await db.sequelize.query(
-        `SELECT user_id, name, email
-     FROM users
-     WHERE user_id IN (:userIds)
-       AND (is_active = 1 OR is_active IS NULL)
-     ORDER BY user_id ASC`,
-        {
-            replacements: { userIds: Array.from(resolvedUserIds) },
-        }
-    );
-
-    return userRows || [];
+    return resolveActiveUsersByIds(Array.from(resolvedUserIds));
 }
 
 async function sendSurveyDeadlineReminder({ surveyId, releaseId, actorUserId, customMessage }) {
@@ -357,7 +390,26 @@ async function sendSurveyDeadlineEmailReminder({ surveyId, releaseId, customMess
 async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUserId, targetGroupIds, targetUserIds }) {
     const users = await resolveUsersByTargeting({ targetGroupIds, targetUserIds });
 
-    if (!users.length) {
+    const [surveyRows] = await db.sequelize.query(
+        'SELECT created_by FROM surveys WHERE survey_id = :surveyId LIMIT 1',
+        { replacements: { surveyId } }
+    );
+    const surveyOwnerId = surveyRows && surveyRows[0] ? Number(surveyRows[0].created_by) : null;
+
+    const responsibleApproverIds = await resolveResponsibleApproverIds([
+        actorUserId,
+        surveyOwnerId,
+    ]);
+    const approverUsers = await resolveActiveUsersByIds(responsibleApproverIds);
+
+    const dedupMap = new Map();
+    for (const user of [...users, ...approverUsers]) {
+        if (!user || !Number.isInteger(Number(user.user_id))) continue;
+        dedupMap.set(Number(user.user_id), user);
+    }
+    const recipients = Array.from(dedupMap.values());
+
+    if (!recipients.length) {
         return {
             survey_id: surveyId,
             recipients: 0,
@@ -374,7 +426,7 @@ async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUser
     let portalNotificationsCreated = 0;
     try {
         await db.UserNotification.bulkCreate(
-            users.map((user) => ({
+            recipients.map((user) => ({
                 user_id: user.user_id,
                 notification_type: 'SURVEY_CREATED',
                 title,
@@ -390,7 +442,7 @@ async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUser
                 updated_at: new Date(),
             }))
         );
-        portalNotificationsCreated = users.length;
+        portalNotificationsCreated = recipients.length;
     } catch (error) {
         portalNotificationsCreated = 0;
         console.error('[surveyNotificationService] survey creation portal notification insert failed', error && (error.message || error));
@@ -400,7 +452,7 @@ async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUser
     let emailsSent = 0;
     let emailsSkipped = 0;
 
-    for (const user of users) {
+    for (const user of recipients) {
         if (!user.email) {
             emailsSkipped += 1;
             continue;
@@ -439,7 +491,7 @@ async function sendSurveyCreationNotification({ surveyId, surveyTitle, actorUser
 
     return {
         survey_id: surveyId,
-        recipients: users.length,
+        recipients: recipients.length,
         portal_notifications_created: portalNotificationsCreated,
         emails_sent: emailsSent,
         emails_skipped: emailsSkipped,
