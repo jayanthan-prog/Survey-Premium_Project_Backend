@@ -48,6 +48,14 @@ function parseJsonSafe(value, fallback = {}) {
   }
 }
 
+function normalizeMailDraft(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    subject: String(source.subject || ''),
+    body: String(source.body || ''),
+  };
+}
+
 function normalizeResponseCategoryLimits(input) {
   const items = Array.isArray(input) ? input : [];
   const allowedFields = new Set(['year', 'category', 'department', 'section', 'attributes.gender']);
@@ -554,6 +562,7 @@ exports.createSurvey = async (req, res) => {
       pages: Array.isArray(req.body?.pages) ? req.body.pages : [],
       maxResponses: req.body?.maxResponses == null ? null : Math.max(0, Number(req.body.maxResponses) || 0),
       responseCategoryLimits: normalizeResponseCategoryLimits(req.body?.responseCategoryLimits || req.body?.responseQuotas),
+      mailDraft: normalizeMailDraft(req.body?.mailDraft || req.body?.config?.mailDraft),
     };
 
     await db.sequelize.query(
@@ -697,6 +706,8 @@ exports.createSurvey = async (req, res) => {
         actorUserId: req.userId,
         targetGroupIds: config.targetGroupIds,
         targetUserIds: config.targetUserIds,
+        mailDraft: config.mailDraft,
+        surveyDeadline: config.endDate,
       });
     } catch (notificationError) {
       console.error('[survey.controller] failed to send survey creation notifications', notificationError && (notificationError.message || notificationError));
@@ -880,6 +891,12 @@ exports.updateSurvey = async (req, res) => {
     }
 
     const currentConfig = rows[0].config && typeof rows[0].config === 'string' ? JSON.parse(rows[0].config) : (rows[0].config || {});
+    const hasTopLevelMailDraft = Object.prototype.hasOwnProperty.call(req.body || {}, 'mailDraft');
+    const hasConfigMailDraft = req.body?.config && Object.prototype.hasOwnProperty.call(req.body.config, 'mailDraft');
+    const incomingMailDraft = hasTopLevelMailDraft
+      ? req.body.mailDraft
+      : (hasConfigMailDraft ? req.body.config.mailDraft : currentConfig.mailDraft);
+
     const nextConfig = {
       ...currentConfig,
       ...(req.body?.config || {}),
@@ -906,6 +923,7 @@ exports.updateSurvey = async (req, res) => {
         : (Object.prototype.hasOwnProperty.call(req.body || {}, 'responseQuotas')
           ? normalizeResponseCategoryLimits(req.body.responseQuotas)
           : normalizeResponseCategoryLimits(currentConfig.responseCategoryLimits || currentConfig.responseQuotas)),
+      mailDraft: normalizeMailDraft(incomingMailDraft),
     };
 
     const surveyType = String(req.body?.type || req.body?.category || '').toUpperCase();
@@ -1065,10 +1083,13 @@ exports.publishSurvey = async (req, res) => {
 
     let notificationResult;
     try {
+      const draft = normalizeMailDraft(surveyConfig.mailDraft);
       notificationResult = await sendSurveyDeadlineReminder({
         surveyId,
         releaseId,
         actorUserId: req.userId,
+        customSubject: draft.subject || null,
+        customMessage: draft.body || null,
       });
     } catch (notifyErr) {
       notificationResult = {
@@ -1257,10 +1278,13 @@ exports.createRelease = async (req, res) => {
 
     let notificationResult;
     try {
+      const draft = normalizeMailDraft(surveyConfig.mailDraft);
       notificationResult = await sendSurveyDeadlineReminder({
         surveyId,
         releaseId,
         actorUserId: req.userId,
+        customSubject: draft.subject || null,
+        customMessage: draft.body || null,
       });
     } catch (notifyErr) {
       notificationResult = {
@@ -1293,15 +1317,25 @@ exports.sendReleaseDeadlineReminder = async (req, res) => {
     }
 
     const releaseId = Number(req.params.releaseId);
+    const [surveyRows] = await db.sequelize.query(
+      'SELECT config FROM surveys WHERE survey_id = :surveyId LIMIT 1',
+      { replacements: { surveyId } }
+    );
+    const surveyConfig = parseJsonSafe(surveyRows && surveyRows[0] ? surveyRows[0].config : {}, {});
+    const draft = normalizeMailDraft(surveyConfig.mailDraft);
     const customMessage = req.body && typeof req.body.message === 'string'
       ? req.body.message.trim()
+      : '';
+    const customSubject = req.body && typeof req.body.subject === 'string'
+      ? req.body.subject.trim()
       : '';
 
     const result = await sendSurveyDeadlineReminder({
       surveyId,
       releaseId,
       actorUserId: req.userId,
-      customMessage: customMessage || null,
+      customSubject: customSubject || draft.subject || null,
+      customMessage: customMessage || draft.body || null,
     });
 
     return res.json({
