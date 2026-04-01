@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
 const db = require('../models');
 const { requireAdmin, apiControl } = require('../middleware');
 const featureFlags = require('../featureFlags');
@@ -9,6 +10,7 @@ const serverMeta = require('../serverMeta');
 const genController = require('../controllers/generatedApiController');
 const _generatedModels = {};
 
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const adminSessions = new Map();
 let sessionIdCounter = 1;
 
@@ -16,7 +18,8 @@ let sessionIdCounter = 1;
    ADMIN LOGIN PAGE
 ========================================================================*/
 router.get('/login', (req, res) => {
-    res.send(`
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const html = `
 <!doctype html>
 <html lang="en">
 <head>
@@ -24,9 +27,15 @@ router.get('/login', (req, res) => {
   <title>Admin Access | Survey Premium</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     body { background: radial-gradient(circle at top left, #1e293b, #0f172a); font-family: 'Inter', sans-serif; }
     .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    .animate-in { animation: fadeIn 0.3s ease-out; }
+    .fade-in-0 { animation: fadeIn 0.3s ease-out; }
+    .zoom-in-95 { animation: zoomIn 0.3s ease-out; }
   </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4 sm:p-6">
@@ -36,51 +45,226 @@ router.get('/login', (req, res) => {
         <h1 class="text-2xl sm:text-3xl font-bold text-white tracking-tight">Console Access</h1>
         <p class="text-slate-400 mt-2">Authorized Personnel Only</p>
     </div>
-        <form method="post" action="/admin/login" class="space-y-6" aria-label="Admin login form">
-            <div>
-                <label for="token" class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Security Token</label>
-                <input id="token" type="password" name="token" placeholder="Enter Admin API Key" required
-                             class="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
-                <p class="text-xs text-slate-400 mt-2">Use your admin API key to authenticate. This token is never stored in the browser.</p>
-            </div>
-            <div>
-                <label for="adminName" class="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Admin Name</label>
-                <input id="adminName" type="text" name="adminName" placeholder="Enter your name" required
-                             class="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
-                <p class="text-xs text-slate-400 mt-2">This name will be associated with your login session.</p>
-            </div>
-      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-[0.98]">
-        Verify & Enter
-      </button>
-    </form>
+    <div class="space-y-6">
+        <div id="g_id_onload"
+             data-client_id="` + clientId + `"
+             data-callback="handleCredentialResponse">
+        </div>
+        <div class="g_id_signin"
+             data-type="standard"
+             data-size="large"
+             data-theme="filled_black"
+             data-text="signin_with"
+             data-shape="rectangular"
+             data-logo_alignment="left">
+        </div>
+        <p class="text-xs text-slate-400 text-center">Only authorized Google accounts can access the admin console.</p>
+    </div>
   </div>
+
+  <!-- Error Modal -->
+  <div id="errorModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+    <div class="glass w-full max-w-sm sm:max-w-md p-6 sm:p-8 rounded-2xl sm:rounded-3xl shadow-2xl animate-in fade-in-0 zoom-in-95 duration-300">
+      <div class="text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-red-600 rounded-2xl mb-6 shadow-xl shadow-red-500/20">
+          <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+          </svg>
+        </div>
+        <h3 class="text-xl sm:text-2xl font-bold text-white mb-2">Access Denied</h3>
+        <p class="text-slate-300 mb-6" id="errorMessage">Only authorized accounts can login.</p>
+        <button onclick="closeErrorModal()" class="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-medium py-3 px-6 rounded-xl transition-all duration-200 shadow-lg shadow-red-500/25 hover:shadow-red-500/40 transform hover:scale-[1.02]">
+          Try Again
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function handleCredentialResponse(response) {
+        fetch('/admin/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential: response.credential })
+        }).then(res => res.json()).then(data => {
+            if (data.success) {
+                // Store the Bearer token for API calls
+                if (data.token) {
+                    localStorage.setItem('admin_api_token', data.token);
+                }
+                window.location.href = '/admin/dashboard';
+            } else {
+                showErrorModal(data.error || 'Access denied. Only authorized accounts can login.');
+            }
+        }).catch(err => {
+            showErrorModal('Login failed. Please try again.');
+        });
+    }
+
+    function showErrorModal(message) {
+        document.getElementById('errorMessage').textContent = message;
+        document.getElementById('errorModal').classList.remove('hidden');
+        document.getElementById('errorModal').classList.add('flex');
+    }
+
+    function closeErrorModal() {
+        document.getElementById('errorModal').classList.add('hidden');
+        document.getElementById('errorModal').classList.remove('flex');
+    }
+
+    // Close modal when clicking outside
+    document.getElementById('errorModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeErrorModal();
+        }
+    });
+
+    // Helper function for authenticated API calls
+    async function apiFetch(url, options = {}) {
+        const token = localStorage.getItem('admin_api_token');
+        const headers = {
+            'Content-Type': 'application/json',
+            ...options.headers
+        };
+
+        if (token) {
+            headers['Authorization'] = 'Bearer ' + token;
+        }
+
+        return fetch(url, {
+            ...options,
+            headers,
+            credentials: 'same-origin'
+        });
+    }
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !document.getElementById('errorModal').classList.contains('hidden')) {
+            closeErrorModal();
+        }
+    });
+  </script>
 </body>
 </html>
-  `);
+`;
+    res.send(html);
 });
 
 /* =========================================================
    PROCESS LOGIN
 ========================================================= */
-router.post('/login', express.urlencoded({ extended: false }), async (req, res) => {
+router.post('/login', express.json(), async (req, res) => {
     try {
-        const { token } = req.body || {};
-        const adminKey = (process.env.ADMIN_API_KEY || '').trim();
-
-        if (!token || token !== adminKey) {
-            return res.status(401).send(`<div style="background:#0f172a;color:white;height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">
-            <div style="text-align:center;"><h2 style="color:#ef4444;">Access Denied</h2><br><a href="/admin/login" style="color:#3b82f6;">Back to Login</a></div>
-        </div>`);
+        const { credential } = req.body || {};
+        if (!credential) {
+            return res.status(400).json({ error: 'Credential is required' });
         }
 
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        if (!clientId) {
+            return res.status(500).json({ error: 'Google client not configured' });
+        }
+
+        const ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: clientId,
+        });
+
+        const payload = ticket.getPayload();
+        const email = payload && payload.email;
+
+        if (!email || email.toLowerCase() !== 'jayanthan.ei23@bitsathy.ac.in') {
+            console.log(`Admin login denied for ${email || 'unknown'}`);
+            return res.status(403).json({ error: 'Access denied. Only authorized accounts can login.' });
+        }
+
+        // Find or create admin user
+        let adminUser = await db.User.findOne({ where: { email: email.toLowerCase() } });
+        if (!adminUser) {
+            adminUser = await db.User.create({
+                name: payload.name || 'Admin User',
+                email: email.toLowerCase(),
+                is_active: true,
+                attributes: {},
+            });
+            console.log(`Created admin user: ${adminUser.user_id}`);
+        }
+
+        // Ensure admin user has ADMIN role
+        const [roleRows] = await db.sequelize.query(
+            'SELECT role_id FROM roles WHERE UPPER(name) = "ADMIN" LIMIT 1'
+        );
+
+        let roleId = roleRows && roleRows[0] ? roleRows[0].role_id : null;
+        if (!roleId) {
+            const [maxRoleRows] = await db.sequelize.query('SELECT COALESCE(MAX(role_id), 0) AS maxId FROM roles');
+            roleId = (maxRoleRows[0]?.maxId ?? 0) + 1;
+
+            await db.sequelize.query(
+                'INSERT INTO roles (role_id, name, description, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
+                { replacements: [roleId, 'ADMIN', 'Administrator role'] }
+            );
+        }
+
+        // Check if user already has role
+        const [existingRole] = await db.sequelize.query(
+            'SELECT 1 FROM user_roles WHERE user_id = ? AND role_id = ? LIMIT 1',
+            { replacements: [adminUser.user_id, roleId] }
+        );
+
+        if (!existingRole || !existingRole[0]) {
+            await db.sequelize.query(
+                'INSERT INTO user_roles (user_id, role_id, assigned_at) VALUES (?, ?, NOW())',
+                { replacements: [adminUser.user_id, roleId] }
+            );
+        }
+
+        // Generate Bearer token for API calls
+        const token = crypto.randomUUID();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+        const [maxTokenRows] = await db.sequelize.query('SELECT COALESCE(MAX(auth_token_id), 0) AS maxId FROM auth_tokens');
+        const tokenId = (maxTokenRows[0]?.maxId ?? 0) + 1;
+
+        await db.AuthToken.create({
+            auth_token_id: tokenId,
+            user_id: adminUser.user_id,
+            token_hash: token,
+            token_type: 'bearer',
+            expires_at: expiresAt,
+            revoked_at: null,
+        });
+
         // Set admin cookie to expire in 1 hour (3600 seconds). Add Secure when running under HTTPS/production.
+        const adminKey = (process.env.ADMIN_API_KEY || '').trim();
+        const hashedKey = crypto.createHash('sha256').update(adminKey).digest('hex');
         const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production';
         const secureFlag = isSecure ? '; Secure' : '';
-        res.setHeader('Set-Cookie', `admin_token=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=3600; SameSite=Lax${secureFlag}`);
-        return res.redirect('/admin/dashboard');
+        res.setHeader('Set-Cookie', `admin_token=${encodeURIComponent(hashedKey)}; HttpOnly; Path=/; Max-Age=3600; SameSite=Lax${secureFlag}`);
+        console.log(`Admin login successful for ${email}`);
+        return res.json({
+            success: true,
+            token: token,
+            user: {
+                user_id: adminUser.user_id,
+                name: adminUser.name,
+                email: adminUser.email,
+                role: 'ADMIN'
+            }
+        });
     } catch (err) {
-        return res.status(500).send('Server Error');
+        return res.status(500).json({ error: 'Login failed' });
     }
+});
+
+/* =========================================================
+   LOGOUT
+========================================================= */
+router.get('/logout', (req, res) => {
+    // Clear the admin cookie
+    res.setHeader('Set-Cookie', 'admin_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax');
+    res.redirect('/admin/login');
 });
 
 /* =========================================================
@@ -880,13 +1064,15 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
     }
 
     function safeId(input) {
-        return 'st_' + String(input).replace(/[^a-z0-9]/gi, '_');
+        const id = 'st_' + String(input).replace(/[^a-z0-9]/gi, '_');
+        console.log('safeId:', input, '->', id);
+        return id;
     }
 
     // Toggle system online/offline status
     async function toggleSystemStatus() {
         try {
-            const resp = await fetch('/admin/api/system-status', { credentials: 'same-origin' });
+            const resp = await apiFetch('/admin/api/system-status');
             const data = await resp.json();
             const newState = !data.isOnline;
             
@@ -1239,7 +1425,7 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
     // Fetch system status periodically to keep sidebar updated
     setInterval(async () => {
         try {
-            const resp = await fetch('/admin/api/system-status', { credentials: 'same-origin' });
+            const resp = await apiFetch('/admin/api/system-status');
             if (resp.ok) {
                 const data = await resp.json();
                 // Update sidebar only
@@ -1370,7 +1556,7 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
 
         // Fetch API status summary from server
         try {
-            const statusResp = await fetch('/api/admin/api-status', { credentials: 'same-origin' });
+            const statusResp = await apiFetch('/api/admin/api-status');
             if (statusResp.ok) {
                 const statusData = await statusResp.json();
                 // Update summary cards
@@ -1400,7 +1586,7 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                     + '</div>'
                 + '</div>'
                 + '<div class="flex items-center gap-3">'
-                    + '<span id="' + id + '" class="text-[9px] font-black px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500 uppercase" aria-live="polite">Ping</span>'
+                    + '<span id="' + id + '" class="flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500 uppercase" aria-live="polite"><span class="w-2 h-2 rounded-full bg-slate-400"></span>Ping</span>'
                     + '<button data-api="' + api + '" class="toggle-btn text-sm font-semibold px-3 py-1 rounded-xl border" aria-pressed="false">Toggle</button>'
                 + '</div>'
             + '</div>';
@@ -1414,26 +1600,64 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
         apis.forEach(api => {
             const id = safeId(api);
             const el = document.getElementById(id);
-            // Measure latency and handle timeout
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 4000);
+            
+            // Check if API is disabled via feature flags
+            const isEnabled = apiFlags[api] !== undefined ? !!apiFlags[api] : true;
+            if (!isEnabled) {
+                if(el) {
+                    el.innerHTML = '<span class="w-2 h-2 rounded-full bg-gray-400"></span>Disabled';
+                    el.className = "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 shadow-sm shadow-gray-200";
+                    el.title = 'API is disabled via feature flags';
+                }
+                return; // Skip pinging disabled APIs
+            }
+            
+            // Measure latency - use simple HEAD request for connectivity check
             const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-            fetch(api, { signal: controller.signal, credentials: 'same-origin' }).then(r => {
-                clearTimeout(timeout);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+            
+            fetch(api, { 
+                method: 'HEAD', 
+                credentials: 'same-origin',
+                signal: controller.signal
+            }).then(r => {
+                clearTimeout(timeoutId);
+                console.log('API ping result for', api, ':', r.status, r.ok);
                 const took = Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - start);
                 if(el) {
-                    el.innerText = r.ok ? ('Active · ' + took + 'ms') : ('Locked · ' + took + 'ms');
-                    el.className = r.ok ? "text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" : "text-[9px] font-black px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 shadow-sm shadow-amber-200";
+                    el.innerHTML = r.ok 
+                        ? '<span class="w-2 h-2 rounded-full bg-emerald-500"></span>Active · ' + took + 'ms' 
+                        : '<span class="w-2 h-2 rounded-full bg-amber-500"></span>Locked · ' + took + 'ms';
+                    el.className = r.ok 
+                        ? "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" 
+                        : "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 shadow-sm shadow-amber-200";
                     el.title = 'Last checked ' + new Date().toLocaleString() + ' - ' + took + 'ms';
                 }
             }).catch(() => {
-                clearTimeout(timeout);
+                clearTimeout(timeoutId);
                 if(el) {
-                    el.innerText = "Error";
-                    el.className = "text-[9px] font-black px-3 py-1.5 rounded-lg bg-red-100 text-red-600";
+                    el.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span>Error';
+                    el.className = "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-red-100 text-red-600";
                     el.title = 'Failed to reach ' + api;
                 }
             });
+            
+            // Set a fallback timeout to show "Checking..." if ping takes too long
+            setTimeout(() => {
+                if(el && el.innerText === "Ping") {
+                    el.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-500"></span>Checking...';
+                    el.className = "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-blue-100 text-blue-600";
+                }
+            }, 500);
+            
+            // Set a fallback timeout to show "Checking..." if ping takes too long
+            setTimeout(() => {
+                if(el && el.innerText && el.innerText.includes("Ping")) {
+                    el.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>Checking...';
+                    el.className = "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-blue-100 text-blue-600";
+                }
+            }, 1000);
         });
 
         // Hook up toggle buttons
@@ -1462,8 +1686,13 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
                         // refresh status badge quickly
                         const st = document.getElementById(safeId(apiPath));
                         if (st) {
-                            st.innerText = result.enabled ? 'Active' : 'Locked';
-                            st.className = result.enabled ? "text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" : "text-[9px] font-black px-3 py-1.5 rounded-lg bg-amber-100 text-amber-600 shadow-sm shadow-amber-200";
+                            st.innerHTML = result.enabled 
+                                ? '<span class="w-2 h-2 rounded-full bg-emerald-500"></span>Active' 
+                                : '<span class="w-2 h-2 rounded-full bg-gray-400"></span>Disabled';
+                            st.className = result.enabled 
+                                ? "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-600 shadow-sm shadow-emerald-200" 
+                                : "flex items-center gap-1.5 text-[9px] font-black px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 shadow-sm shadow-gray-200";
+                            st.title = result.enabled ? 'API is active and responding' : 'API is disabled via feature flags';
                         }
                         showToast('API ' + apiPath + ' ' + (result.enabled ? 'enabled' : 'disabled') + ' (persisted)', 'success');
                     } else {
@@ -1545,6 +1774,9 @@ router.get('/dashboard', requireAdmin, async (req, res, next) => {
             // now run the usual status check
             checkApiStatus();
         })();
+
+        // Auto-refresh API status every 30 seconds
+        setInterval(checkApiStatus, 30000);
 
         // Quick API Builder wiring (creates admin-only CRUD endpoints mounted under /admin/generated/:model)
         const createApiBtn = document.getElementById('createApiBtn');
