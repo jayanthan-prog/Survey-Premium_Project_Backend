@@ -124,11 +124,40 @@ function isChoiceQuestionType(questionType, config = {}) {
 }
 
 function normalizeSelectionRules(value, fallback = {}) {
-  const source = value && typeof value === 'object' ? value : {};
+  let source = value && typeof value === 'object' ? value : {};
+
+  // Allow builder to send rules as an array: [{ key/type, value, message }]
+  if (Array.isArray(value)) {
+    const reduced = {};
+    for (const entry of value) {
+      const key = String(entry?.key ?? entry?.type ?? '').trim();
+      if (!key) continue;
+      reduced[key] = entry?.value;
+    }
+    source = reduced;
+  }
+
   return {
     maxPrimary: Math.max(0, Number(source.maxPrimary ?? fallback.maxPrimary) || 0),
     maxSecondary: Math.max(0, Number(source.maxSecondary ?? fallback.maxSecondary) || 0),
+    maxSpecial: Math.max(0, Number(source.maxSpecial ?? fallback.maxSpecial) || 0),
     preventDuplicate: source.preventDuplicate == null ? Boolean(fallback.preventDuplicate) : Boolean(source.preventDuplicate),
+  };
+}
+
+function normalizeValidation(value) {
+  if (!value || typeof value !== 'object') return {};
+
+  const minLengthSource = value.minLength;
+  const maxLengthSource = value.maxLength;
+  const minLength = minLengthSource === '' || minLengthSource == null ? null : Math.max(0, Number(minLengthSource) || 0);
+  const maxLength = maxLengthSource === '' || maxLengthSource == null ? null : Math.max(0, Number(maxLengthSource) || 0);
+
+  return {
+    minLength,
+    maxLength,
+    regex: typeof value.regex === 'string' ? value.regex : '',
+    email: Boolean(value.email),
   };
 }
 
@@ -142,6 +171,7 @@ function extractSelectionValues(questionType, answerValue) {
     return [
       ...((Array.isArray(answerValue.primary) ? answerValue.primary : [answerValue.primary]).filter(Boolean)),
       ...((Array.isArray(answerValue.secondary) ? answerValue.secondary : [answerValue.secondary]).filter(Boolean)),
+      ...((Array.isArray(answerValue.special) ? answerValue.special : [answerValue.special]).filter(Boolean)),
     ].map((value) => String(value)).filter(Boolean);
   }
   if (normalized === 'multiple_choice') {
@@ -181,6 +211,53 @@ function normalizeResponseCategoryLimits(input) {
 
 function normalizeComparable(value) {
   return String(value == null ? '' : value).trim().toLowerCase();
+}
+
+function normalizeSurveyPagesForConfig(pages) {
+  const safePages = Array.isArray(pages) ? pages : [];
+
+  return safePages
+    .map((page, index) => {
+      const questions = Array.isArray(page?.questions) ? page.questions : [];
+      return {
+        id: page?.id != null ? String(page.id) : `page-${index + 1}`,
+        title: String(page?.title || `Page ${index + 1}`),
+        collapsed: Boolean(page?.collapsed),
+        questions: questions.map((question) => {
+          if (!question || typeof question !== 'object') return question;
+          return {
+            id: question.id,
+            text: question.text,
+            description: question.description,
+            type: question.type,
+            required: question.required,
+            randomizeOptions: question.randomizeOptions,
+            options: Array.isArray(question.options)
+              ? question.options.map((opt) => ({
+                id: opt?.id,
+                label: opt?.label,
+                value: opt?.value,
+                limit: opt?.limit ?? null,
+                selectedCount: opt?.selectedCount ?? 0,
+                meta: opt?.meta,
+              }))
+              : [],
+            selectionRules: question.selectionRules,
+            maxRank: question.maxRank,
+            scaleMin: question.scaleMin,
+            scaleMax: question.scaleMax,
+            min: question.min,
+            max: question.max,
+            rows: question.rows,
+            columns: question.columns,
+            displayLogic: question.displayLogic,
+            skipLogic: question.skipLogic,
+            validation: question.validation,
+          };
+        }),
+      };
+    })
+    .filter(Boolean);
 }
 
 function extractUserCategoryValue(user, field) {
@@ -713,7 +790,7 @@ exports.createSurvey = async (req, res) => {
       startDate: req.body?.startDate || null,
       endDate: req.body?.endDate || null,
       groups: Array.isArray(req.body?.groups) ? req.body.groups : [],
-      pages: Array.isArray(req.body?.pages) ? req.body.pages : [],
+      pages: normalizeSurveyPagesForConfig(req.body?.pages),
       maxResponses: req.body?.maxResponses == null ? null : Math.max(0, Number(req.body.maxResponses) || 0),
       responseCategoryLimits: normalizeResponseCategoryLimits(req.body?.responseCategoryLimits || req.body?.responseQuotas),
       mailDraft: normalizeMailDraft(req.body?.mailDraft || req.body?.config?.mailDraft),
@@ -797,6 +874,7 @@ exports.createSurvey = async (req, res) => {
         answerType: String(question?.type || 'short_text').toLowerCase(),
         displayLogic: mappedDisplayLogic,
         skipLogic: mappedSkipLogic,
+        validation: normalizeValidation(question?.validation),
         scaleMin: Number(question?.scaleMin || 1),
         scaleMax: Number(question?.scaleMax || 5),
         fileName: question?.fileName || '',
@@ -807,6 +885,7 @@ exports.createSurvey = async (req, res) => {
         selectionRules: normalizeSelectionRules(question?.selectionRules, {
           maxPrimary: question?.type === 'priority_select' ? 3 : 2,
           maxSecondary: question?.type === 'multi_level_selection' ? 2 : 0,
+          maxSpecial: 0,
           preventDuplicate: ['priority_select', 'multi_level_selection'].includes(String(question?.type || '').toLowerCase()),
         }),
         maxRank: Number(question?.maxRank || (question?.type === 'priority_select' ? 3 : 0)) || 0,
@@ -1006,9 +1085,11 @@ exports.getSurveyById = async (req, res) => {
         sortOrder: Number(question.sort_order || 0),
         displayLogic: normalizeDisplayLogic(config.displayLogic),
         skipLogic: normalizeSkipLogic(config.skipLogic),
+        validation: normalizeValidation(config.validation),
         selectionRules: normalizeSelectionRules(config.selectionRules, {
           maxPrimary: config.maxPrimary || (qType === 'priority_select' ? 3 : 0),
           maxSecondary: config.maxSecondary || (qType === 'multi_level_selection' ? 2 : 0),
+          maxSpecial: config.maxSpecial || 0,
           preventDuplicate: ['priority_select', 'multi_level_selection'].includes(qType),
         }),
         maxRank: Number(config.maxRank || (qType === 'priority_select' ? 3 : 0)) || 0,
@@ -1097,7 +1178,7 @@ exports.updateSurvey = async (req, res) => {
       startDate: Object.prototype.hasOwnProperty.call(req.body || {}, 'startDate') ? (req.body.startDate || null) : (currentConfig.startDate || null),
       endDate: Object.prototype.hasOwnProperty.call(req.body || {}, 'endDate') ? (req.body.endDate || null) : (currentConfig.endDate || null),
       groups: Object.prototype.hasOwnProperty.call(req.body || {}, 'groups') ? (Array.isArray(req.body.groups) ? req.body.groups : []) : (currentConfig.groups || []),
-      pages: Object.prototype.hasOwnProperty.call(req.body || {}, 'pages') ? (Array.isArray(req.body.pages) ? req.body.pages : []) : (currentConfig.pages || []),
+      pages: Object.prototype.hasOwnProperty.call(req.body || {}, 'pages') ? normalizeSurveyPagesForConfig(req.body.pages) : (currentConfig.pages || []),
       maxResponses: Object.prototype.hasOwnProperty.call(req.body || {}, 'maxResponses')
         ? (req.body.maxResponses == null ? null : Math.max(0, Number(req.body.maxResponses) || 0))
         : (currentConfig.maxResponses == null ? null : Number(currentConfig.maxResponses)),
@@ -1269,6 +1350,7 @@ exports.publishSurvey = async (req, res) => {
           answerType: String(question?.type || 'short_text').toLowerCase(),
           displayLogic: mappedDisplayLogic,
           skipLogic: mappedSkipLogic,
+          validation: normalizeValidation(question?.validation),
           scaleMin: Number(question?.scaleMin || 1),
           scaleMax: Number(question?.scaleMax || 5),
           fileName: question?.fileName || '',
@@ -1279,6 +1361,7 @@ exports.publishSurvey = async (req, res) => {
           selectionRules: normalizeSelectionRules(question?.selectionRules, {
             maxPrimary: question?.type === 'priority_select' ? 3 : 2,
             maxSecondary: question?.type === 'multi_level_selection' ? 2 : 0,
+            maxSpecial: 0,
             preventDuplicate: ['priority_select', 'multi_level_selection'].includes(String(question?.type || '').toLowerCase()),
           }),
           maxRank: Number(question?.maxRank || (question?.type === 'priority_select' ? 3 : 0)) || 0,
@@ -2699,6 +2782,7 @@ exports.submitSurvey = async (req, res) => {
       const selectionRules = normalizeSelectionRules(questionConfig.selectionRules, {
         maxPrimary: questionConfig.maxPrimary || (questionType === 'priority_select' ? 3 : 0),
         maxSecondary: questionConfig.maxSecondary || (questionType === 'multi_level_selection' ? 2 : 0),
+        maxSpecial: questionConfig.maxSpecial || 0,
         preventDuplicate: ['priority_select', 'multi_level_selection'].includes(questionType),
       });
 
