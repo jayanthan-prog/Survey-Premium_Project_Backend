@@ -22,7 +22,7 @@
   "/admin/generated/userrole/:id": true,
   "/api/survey_answers": true,
   "/api/role-permissions": true,
-  "/api/groups": true,
+  "/api/groups": false,
   "/api/relay-stage-actions": true,
   "/api/action-plan-items": true,
   "/api/action-plans": true,
@@ -57,6 +57,7 @@
   "/admin/generated/surveyrelease/:id": true,
   "/admin/generated/relayinstance/": true,
   "/admin/generated/relayinstance/:id": false,
-  "/admin/generated/approvalworkflow/": true,
-  "/admin/generated/approvalworkflow/:id": true
+  "/admin/generated/approvalworkflow/": false,
+  "/admin/generated/approvalworkflow/:id": true,
+  "/api/venues": true
 }

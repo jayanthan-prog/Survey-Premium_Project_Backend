@@ -19,6 +19,10 @@ const configuredCorsOrigins = String(process.env.CORS_ALLOWED_ORIGINS || '')
 const defaultCorsOrigins = [
 	'http://localhost:5173',
 	'http://127.0.0.1:5173',
+	'http://10.150.20.138:3000',
+	'http://localhost:3000',
+	'http://localhost:4000',
+	'http://10.150.20.138:4000',
 ];
 
 const allowedOrigins = new Set([...defaultCorsOrigins, ...configuredCorsOrigins]);
@@ -47,8 +51,6 @@ const userRoutes = require('../routes/userRoutes');
 const groupRoutes = require('../routes/groupRoutes');
 const relayStageActionRoutes = require('../routes/relayStageActionRoutes');
 const relayWorkflowRoutes = require('../routes/relayWorkflowRoutes');
-const actionPlanItemRoutes = require('../routes/actionPlanItemRoutes');
-const actionPlanRoutes = require('../routes/actionPlanRoutes');
 const auditEventRoutes = require('../routes/auditEventRoutes');
 const auditLogRoutes = require('../routes/auditLogRoutes');
 const authTokenRoutes = require('../routes/authTokenRoutes');
@@ -101,17 +103,22 @@ app.use('/api', createAuditTrail());
 // Auth routes (login/logout) - mounted before gatekeeper
 app.use('/api/auth', authRoutes);
 
+// Public API routes (before gatekeeper)
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/api/version', (req, res) => res.json({ version: serverMeta.version || '1.0.0', build: serverMeta.build || 'dev' }));
+
 // Gatekeeper: block/allow API routes based on admin toggles and feature flags
 app.use('/api', apiGatekeeper);
 app.use('/api', requireAuth);
+
+// Protected routes
+app.get('/api/me', (req, res) => res.json({ user: req.user }));
 
 // Mount routes under /api
 app.use('/api/users', requireAnyRole(['ADMIN', 'APPROVER']), userRoutes);
 app.use('/api/groups', requireAnyRole(['ADMIN', 'APPROVER']), groupRoutes);
 app.use('/api/relay-stage-actions', requireAnyRole(['ADMIN', 'APPROVER']), relayStageActionRoutes);
 app.use('/api/relay-workflows', requireAnyRole(['ADMIN', 'APPROVER']), relayWorkflowRoutes);
-app.use('/api/action-plan-items', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), actionPlanItemRoutes);
-app.use('/api/action-plans', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), actionPlanRoutes);
 app.use('/api/audit-events', requireAnyRole(['ADMIN']), auditEventRoutes);
 app.use('/api/audit-logs', requireAnyRole(['ADMIN']), auditLogRoutes);
 app.use('/api/auth-tokens', requireAnyRole(['ADMIN']), authTokenRoutes);

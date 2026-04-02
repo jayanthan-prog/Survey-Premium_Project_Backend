@@ -1,5 +1,6 @@
 "use strict";
 const { Op } = require('sequelize');
+const crypto = require('crypto');
 const { normalizeRole, resolveUserRoles } = require('../utils/authRoles');
 
 // --- NEW: KILL SWITCH STORAGE ---
@@ -378,7 +379,7 @@ function requireAdmin(req, res, next) {
     }
   } catch (e) { }
 
-  if (!token || token !== envKey) return res.status(403).json({ error: 'Forbidden' });
+  if (!token || token !== crypto.createHash('sha256').update(envKey).digest('hex')) return res.status(403).json({ error: 'Forbidden' });
   next();
 }
 

@@ -26,8 +26,6 @@ const BASE_API_LIST = [
   "/api/groups",
   "/api/relay-stage-actions",
   "/api/relay-workflows",
-  "/api/action-plan-items",
-  "/api/action-plans",
   "/api/audit-events",
   "/api/audit-logs",
   "/api/auth-tokens",
@@ -90,7 +88,7 @@ router.get('/api-status', async (req, res) => {
 
         return {
           api,
-          status: r.ok ? "ACTIVE" : "INACTIVE",
+          status: r.ok ? "ACTIVE" : r.status === 401 ? "REQUIRES_AUTH" : r.status === 403 ? "FORBIDDEN" : "INACTIVE",
           code: r.status,
           responseTime: time
         };
