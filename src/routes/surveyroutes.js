@@ -12,6 +12,7 @@ router.post('/:id/unpublish', controller.unpublishSurvey);
 router.post('/:id/archive', controller.archiveSurvey);
 router.post('/:id/generate-otp', controller.generateSurveyOtp);
 router.get('/:id/report', controller.getSurveyReport);
+router.post('/:id/allocation/run-priority', controller.runPriorityAllocation);
 router.post('/:id/submit', controller.submitSurvey);
 router.get('/:id/responses', controller.getSurveyResponses);
 router.get('/:id/responses/export', controller.exportSurveyResponses);

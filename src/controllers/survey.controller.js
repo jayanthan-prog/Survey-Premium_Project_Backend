@@ -56,6 +56,112 @@ function normalizeMailDraft(value) {
   };
 }
 
+function normalizeChoiceLabel(value, fallback = '') {
+  const label = String(value == null ? fallback : value).trim();
+  return label || String(fallback || 'Option').trim() || 'Option';
+}
+
+function toChoiceValue(label, fallbackIndex = 0) {
+  const text = String(label || '').trim();
+  const slug = text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return slug || `option_${fallbackIndex + 1}`;
+}
+
+function parseMetaObject(value, fallback = {}) {
+  if (!value) return { ...fallback };
+  if (typeof value === 'object') return { ...fallback, ...value };
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? { ...fallback, ...parsed } : { ...fallback };
+  } catch (_err) {
+    return { ...fallback };
+  }
+}
+
+function normalizeChoiceOption(rawOption, index = 0) {
+  if (rawOption == null) {
+    return {
+      label: `Option ${index + 1}`,
+      value: `option_${index + 1}`,
+      limit: null,
+      selectedCount: 0,
+    };
+  }
+
+  if (typeof rawOption === 'string' || typeof rawOption === 'number') {
+    const label = normalizeChoiceLabel(rawOption, `Option ${index + 1}`);
+    return {
+      label,
+      value: toChoiceValue(label, index),
+      limit: null,
+      selectedCount: 0,
+    };
+  }
+
+  const meta = parseMetaObject(rawOption.meta, {});
+  const label = normalizeChoiceLabel(rawOption.label || rawOption.text || rawOption.option_text || rawOption.value, `Option ${index + 1}`);
+  const value = normalizeChoiceLabel(rawOption.value || rawOption.option_value || label, label) || toChoiceValue(label, index);
+  const limitSource = rawOption.limit ?? rawOption.seatLimit ?? meta.limit ?? meta.seatLimit;
+  const selectedCountSource = rawOption.selectedCount ?? rawOption.selected_count ?? meta.selectedCount ?? meta.selected_count;
+
+  return {
+    id: rawOption.id != null ? String(rawOption.id) : rawOption.question_option_id != null ? String(rawOption.question_option_id) : undefined,
+    label,
+    value,
+    limit: limitSource == null || limitSource === '' ? null : Math.max(0, Number(limitSource) || 0),
+    selectedCount: Math.max(0, Number(selectedCountSource) || 0),
+    meta,
+  };
+}
+
+function isChoiceQuestionType(questionType, config = {}) {
+  const normalized = String(questionType || config.answerType || '').toLowerCase();
+  return ['single_choice', 'multiple_choice', 'dropdown', 'limited_dropdown', 'priority_select', 'multi_level_selection'].includes(normalized);
+}
+
+function normalizeSelectionRules(value, fallback = {}) {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    maxPrimary: Math.max(0, Number(source.maxPrimary ?? fallback.maxPrimary) || 0),
+    maxSecondary: Math.max(0, Number(source.maxSecondary ?? fallback.maxSecondary) || 0),
+    preventDuplicate: source.preventDuplicate == null ? Boolean(fallback.preventDuplicate) : Boolean(source.preventDuplicate),
+  };
+}
+
+function extractSelectionValues(questionType, answerValue) {
+  const normalized = String(questionType || '').toLowerCase();
+  if (normalized === 'priority_select') {
+    return Array.isArray(answerValue) ? answerValue.map((value) => String(value)).filter(Boolean) : [];
+  }
+  if (normalized === 'multi_level_selection') {
+    if (!answerValue || typeof answerValue !== 'object') return [];
+    return [
+      ...((Array.isArray(answerValue.primary) ? answerValue.primary : [answerValue.primary]).filter(Boolean)),
+      ...((Array.isArray(answerValue.secondary) ? answerValue.secondary : [answerValue.secondary]).filter(Boolean)),
+    ].map((value) => String(value)).filter(Boolean);
+  }
+  if (normalized === 'multiple_choice') {
+    return Array.isArray(answerValue) ? answerValue.map((value) => String(value)).filter(Boolean) : [];
+  }
+  if (normalized === 'single_choice' || normalized === 'dropdown' || normalized === 'limited_dropdown') {
+    return answerValue == null || answerValue === '' ? [] : [String(answerValue)];
+  }
+  return [];
+}
+
+function optionKey(option) {
+  return String(option?.value || option?.option_text || option?.label || '').trim().toLowerCase();
+}
+
+function findMatchingOption(questionOptions, selectedValue) {
+  const normalized = String(selectedValue || '').trim().toLowerCase();
+  return (questionOptions || []).find((option) => optionKey(option) === normalized);
+}
+
 function normalizeResponseCategoryLimits(input) {
   const items = Array.isArray(input) ? input : [];
   const allowedFields = new Set(['year', 'category', 'department', 'section', 'attributes.gender']);
@@ -177,7 +283,7 @@ function mapQuestionType(value) {
 function mapQuestionTypeToFrontend(value, questionConfig = {}) {
   const normalized = String(value || '').toUpperCase();
   const answerType = String(questionConfig?.answerType || '').toLowerCase();
-  const passthroughTypes = new Set(['short_text', 'long_text', 'file_upload', 'single_choice', 'multiple_choice', 'rating', 'dropdown', 'date', 'number', 'matrix']);
+  const passthroughTypes = new Set(['short_text', 'long_text', 'file_upload', 'single_choice', 'multiple_choice', 'rating', 'dropdown', 'date', 'number', 'matrix', 'limited_dropdown', 'priority_select', 'multi_level_selection']);
 
   if (passthroughTypes.has(answerType)) return answerType;
   if (normalized === 'SINGLE') return 'single_choice';
@@ -304,14 +410,59 @@ async function getSurveyResponseSnapshot(surveyId, searchText = '') {
     { replacements: { surveyId } }
   );
 
+  const questionIds = (questionRows || []).map((row) => Number(row.question_id));
+  let optionRows = [];
+  if (questionIds.length) {
+    const [rows] = await db.sequelize.query(
+      `SELECT question_option_id, question_id, option_text, value, sort_order, meta
+       FROM survey_question_options
+       WHERE question_id IN (:questionIds)
+       ORDER BY sort_order ASC, question_option_id ASC`,
+      { replacements: { questionIds } }
+    );
+    optionRows = rows || [];
+  }
+
+  const optionsByQuestion = new Map();
+  for (const option of optionRows) {
+    const key = Number(option.question_id);
+    const existing = optionsByQuestion.get(key) || [];
+    existing.push(option);
+    optionsByQuestion.set(key, existing);
+  }
+
   const questions = (questionRows || []).map((row) => {
     const cfg = parseJsonSafe(row.config, {});
-    return {
+    const qType = mapQuestionTypeToFrontend(row.question_type, cfg);
+    const options = (optionsByQuestion.get(Number(row.question_id)) || []).map((option, index) => {
+      const normalizedOption = normalizeChoiceOption(option, index);
+      return {
+        id: Number(option.question_option_id),
+        label: normalizedOption.label,
+        value: normalizedOption.value,
+        limit: normalizedOption.limit,
+        selectedCount: normalizedOption.selectedCount,
+        sortOrder: Number(option.sort_order || 0),
+      };
+    });
+
+    const question = {
       id: Number(row.question_id),
       text: row.question_text,
-      type: mapQuestionTypeToFrontend(row.question_type, cfg),
+      type: qType,
       sortOrder: Number(row.sort_order || 0),
+      options,
+      selectionRules: normalizeSelectionRules(cfg.selectionRules, {
+        maxPrimary: cfg.maxPrimary || (qType === 'priority_select' ? 3 : 0),
+        maxSecondary: cfg.maxSecondary || (qType === 'multi_level_selection' ? 2 : 0),
+        preventDuplicate: ['priority_select', 'multi_level_selection'].includes(qType),
+      }),
+      maxRank: Number(cfg.maxRank || (qType === 'priority_select' ? 3 : 0)) || 0,
+      displayLogic: normalizeDisplayLogic(cfg.displayLogic),
+      skipLogic: normalizeSkipLogic(cfg.skipLogic),
     };
+
+    return question;
   });
 
   const [participationRows] = await db.sequelize.query(
@@ -339,7 +490,10 @@ async function getSurveyResponseSnapshot(surveyId, searchText = '') {
       .some((entry) => entry.includes(search));
   });
 
-  const participationIds = filteredParticipations.map((row) => Number(row.participation_id)).filter((id) => Number.isInteger(id) && id > 0);
+  const participationIds = filteredParticipations
+    .map((row) => Number(row.participation_id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
   let answerRows = [];
   if (participationIds.length) {
     const [rows] = await db.sequelize.query(
@@ -398,7 +552,7 @@ async function getSurveyResponseSnapshot(surveyId, searchText = '') {
 
 async function nextId(tableName, columnName, transaction) {
   const [rows] = await db.sequelize.query(
-    `SELECT COALESCE(MAX(${columnName}), 0) + 1 AS nextValue FROM ${tableName}`,
+    `SELECT COALESCE(MAX(${columnName}), 0) + 1 AS nextValue FROM ${tableName} `,
     { transaction }
   );
   return Number(rows && rows[0] ? rows[0].nextValue : 1);
@@ -431,7 +585,7 @@ async function getActiveGroupIds(groupIds, transaction) {
 
   const inactiveRequested = normalized.filter((groupId) => !activeSet.has(groupId));
   if (inactiveRequested.length) {
-    const error = new Error(`Inactive or unknown groups cannot be used: ${inactiveRequested.join(', ')}`);
+    const error = new Error(`Inactive or unknown groups cannot be used: ${inactiveRequested.join(', ')} `);
     error.statusCode = 400;
     throw error;
   }
@@ -459,7 +613,7 @@ async function getActiveUserIds(userIds, transaction) {
   const activeSet = new Set((userRows || []).map((row) => Number(row.user_id)));
   const inactiveRequested = normalized.filter((userId) => !activeSet.has(userId));
   if (inactiveRequested.length) {
-    const error = new Error(`Inactive or unknown users cannot be used: ${inactiveRequested.join(', ')}`);
+    const error = new Error(`Inactive or unknown users cannot be used: ${inactiveRequested.join(', ')} `);
     error.statusCode = 400;
     throw error;
   }
@@ -481,11 +635,11 @@ async function getSurveyList(req) {
     replacements.currentUserId = req.userId;
   }
 
-  const visibilityClause = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const visibilityClause = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')} ` : '';
 
   const [rows] = await db.sequelize.query(
     `SELECT
-      s.survey_id,
+    s.survey_id,
       s.code,
       s.title,
       s.type,
@@ -497,19 +651,19 @@ async function getSurveyList(req) {
       s.created_at,
       s.updated_at,
       u.name AS created_by_name,
-      COALESCE(q.question_count, 0) AS question_count,
-      lr.release_id AS latest_release_id,
-      lr.name AS latest_release_name,
-      lr.opens_at AS latest_release_opens_at,
-      lr.closes_at AS latest_release_closes_at,
-      lr.is_frozen AS latest_release_is_frozen
+        COALESCE(q.question_count, 0) AS question_count,
+          lr.release_id AS latest_release_id,
+            lr.name AS latest_release_name,
+              lr.opens_at AS latest_release_opens_at,
+                lr.closes_at AS latest_release_closes_at,
+                  lr.is_frozen AS latest_release_is_frozen
     FROM surveys s
     LEFT JOIN users u ON u.user_id = s.created_by
-    LEFT JOIN (
-      SELECT survey_id, COUNT(*) AS question_count
+    LEFT JOIN(
+                    SELECT survey_id, COUNT(*) AS question_count
       FROM survey_questions
       GROUP BY survey_id
-    ) q ON q.survey_id = s.survey_id
+                  ) q ON q.survey_id = s.survey_id
     LEFT JOIN survey_releases lr ON lr.release_id = (
       SELECT sr.release_id
       FROM survey_releases sr
@@ -546,7 +700,7 @@ exports.createSurvey = async (req, res) => {
 
     const surveyId = await nextId('surveys', 'survey_id', transaction);
     const version = Number(req.body?.version || 1);
-    const code = `SVY-${String(surveyId).padStart(4, '0')}`;
+    const code = `SVY - ${String(surveyId).padStart(4, '0')} `;
 
     const config = {
       summary: req.body?.summary || '',
@@ -566,8 +720,8 @@ exports.createSurvey = async (req, res) => {
     };
 
     await db.sequelize.query(
-      `INSERT INTO surveys (survey_id, code, title, type, version, status, config, dsl_rules, created_by, created_at, updated_at)
-       VALUES (:surveyId, :code, :title, :type, :version, 'DRAFT', :config, :dslRules, :createdBy, NOW(), NOW())`,
+      `INSERT INTO surveys(survey_id, code, title, type, version, status, config, dsl_rules, created_by, created_at, updated_at)
+  VALUES(:surveyId, :code, :title, :type, :version, 'DRAFT', :config, :dslRules, :createdBy, NOW(), NOW())`,
       {
         replacements: {
           surveyId,
@@ -650,17 +804,23 @@ exports.createSurvey = async (req, res) => {
         max: question?.max != null ? Number(question.max) : null,
         rows: Array.isArray(question?.rows) ? question.rows : [],
         columns: Array.isArray(question?.columns) ? question.columns : [],
+        selectionRules: normalizeSelectionRules(question?.selectionRules, {
+          maxPrimary: question?.type === 'priority_select' ? 3 : 2,
+          maxSecondary: question?.type === 'multi_level_selection' ? 2 : 0,
+          preventDuplicate: ['priority_select', 'multi_level_selection'].includes(String(question?.type || '').toLowerCase()),
+        }),
+        maxRank: Number(question?.maxRank || (question?.type === 'priority_select' ? 3 : 0)) || 0,
       };
 
       await db.sequelize.query(
-        `INSERT INTO survey_questions (question_id, survey_id, question_type, question_text, is_required, sort_order, config, created_at, updated_at)
-         VALUES (:questionId, :surveyId, :questionType, :questionText, :isRequired, :sortOrder, :config, NOW(), NOW())`,
+        `INSERT INTO survey_questions(question_id, survey_id, question_type, question_text, is_required, sort_order, config, created_at, updated_at)
+  VALUES(:questionId, :surveyId, :questionType, :questionText, :isRequired, :sortOrder, :config, NOW(), NOW())`,
         {
           replacements: {
             questionId,
             surveyId,
             questionType: mapQuestionType(question?.type),
-            questionText: String(question?.text || '').trim() || `Question ${index + 1}`,
+            questionText: String(question?.text || '').trim() || `Question ${index + 1} `,
             isRequired: question?.required !== false,
             sortOrder: index + 1,
             config: JSON.stringify(questionConfig),
@@ -670,25 +830,32 @@ exports.createSurvey = async (req, res) => {
       );
 
       const choices = Array.isArray(question?.options) ? question.options : [];
-      if (choices.length && ['single_choice', 'multiple_choice', 'dropdown'].includes(String(question?.type || '').toLowerCase())) {
+      if (choices.length && ['single_choice', 'multiple_choice', 'dropdown', 'limited_dropdown', 'priority_select', 'multi_level_selection'].includes(String(question?.type || '').toLowerCase())) {
         for (let optionIndex = 0; optionIndex < choices.length; optionIndex += 1) {
-          const optionText = String(choices[optionIndex] || '').trim();
+          const normalizedOption = normalizeChoiceOption(choices[optionIndex], optionIndex);
+          const optionText = normalizedOption.label;
           if (!optionText) continue;
 
           const optionId = nextOptionId;
           nextOptionId += 1;
 
+          const meta = {
+            ...(normalizedOption.meta || {}),
+            limit: normalizedOption.limit,
+            selectedCount: normalizedOption.selectedCount,
+          };
+
           await db.sequelize.query(
-            `INSERT INTO survey_question_options (question_option_id, question_id, option_text, value, sort_order, meta, created_at, updated_at)
-             VALUES (:optionId, :questionId, :optionText, :value, :sortOrder, :meta, NOW(), NOW())`,
+            `INSERT INTO survey_question_options(question_option_id, question_id, option_text, value, sort_order, meta, created_at, updated_at)
+  VALUES(:optionId, :questionId, :optionText, :value, :sortOrder, :meta, NOW(), NOW())`,
             {
               replacements: {
                 optionId,
                 questionId,
                 optionText,
-                value: optionText,
+                value: normalizedOption.value || optionText,
                 sortOrder: optionIndex + 1,
-                meta: JSON.stringify({}),
+                meta: JSON.stringify(meta),
               },
               transaction,
             }
@@ -780,7 +947,7 @@ exports.getSurveyById = async (req, res) => {
         });
         if (reachedQuota) {
           return res.status(409).json({
-            error: `Response limit reached for your category (${reachedQuota.label})`,
+            error: `Response limit reached for your category(${reachedQuota.label})`,
             quota: reachedQuota,
           });
         }
@@ -801,7 +968,7 @@ exports.getSurveyById = async (req, res) => {
       const [rows] = await db.sequelize.query(
         `SELECT question_option_id, question_id, option_text, value, sort_order, meta
          FROM survey_question_options
-         WHERE question_id IN (:questionIds)
+         WHERE question_id IN(:questionIds)
          ORDER BY sort_order ASC, question_option_id ASC`,
         { replacements: { questionIds } }
       );
@@ -818,8 +985,18 @@ exports.getSurveyById = async (req, res) => {
 
     const questions = (questionRows || []).map((question) => {
       const config = question.config && typeof question.config === 'string' ? JSON.parse(question.config) : (question.config || {});
-      const options = (optionsByQuestion.get(Number(question.question_id)) || []).map((option) => option.option_text);
       const qType = mapQuestionTypeToFrontend(question.question_type, config);
+      const options = (optionsByQuestion.get(Number(question.question_id)) || []).map((option, index) => {
+        const normalizedOption = normalizeChoiceOption(option, index);
+        return {
+          id: Number(option.question_option_id),
+          label: normalizedOption.label,
+          value: normalizedOption.value,
+          limit: normalizedOption.limit,
+          selectedCount: normalizedOption.selectedCount,
+          sortOrder: Number(option.sort_order || 0),
+        };
+      });
 
       const q = {
         id: Number(question.question_id),
@@ -829,9 +1006,15 @@ exports.getSurveyById = async (req, res) => {
         sortOrder: Number(question.sort_order || 0),
         displayLogic: normalizeDisplayLogic(config.displayLogic),
         skipLogic: normalizeSkipLogic(config.skipLogic),
+        selectionRules: normalizeSelectionRules(config.selectionRules, {
+          maxPrimary: config.maxPrimary || (qType === 'priority_select' ? 3 : 0),
+          maxSecondary: config.maxSecondary || (qType === 'multi_level_selection' ? 2 : 0),
+          preventDuplicate: ['priority_select', 'multi_level_selection'].includes(qType),
+        }),
+        maxRank: Number(config.maxRank || (qType === 'priority_select' ? 3 : 0)) || 0,
       };
 
-      if (['single_choice', 'multiple_choice', 'dropdown'].includes(qType)) {
+      if (['single_choice', 'multiple_choice', 'dropdown', 'limited_dropdown', 'priority_select', 'multi_level_selection'].includes(qType)) {
         q.options = options;
       }
 
@@ -932,10 +1115,10 @@ exports.updateSurvey = async (req, res) => {
     await db.sequelize.query(
       `UPDATE surveys
        SET title = COALESCE(:title, title),
-           type = COALESCE(:type, type),
-           status = COALESCE(:status, status),
-           config = :config,
-           updated_at = NOW()
+    type = COALESCE(:type, type),
+    status = COALESCE(:status, status),
+    config = :config,
+      updated_at = NOW()
        WHERE survey_id = :surveyId`,
       {
         replacements: {
@@ -1019,6 +1202,141 @@ exports.publishSurvey = async (req, res) => {
       return res.status(404).json({ error: 'Survey not found' });
     }
 
+    const surveyConfig = parseJsonSafe(surveyRows[0]?.config, {});
+
+    // Sync updated questions from config to database (for republishing)
+    let allQuestions = [];
+    if (Array.isArray(surveyConfig?.pages) && surveyConfig.pages.length) {
+      for (const page of surveyConfig.pages) {
+        if (Array.isArray(page.questions)) {
+          allQuestions = allQuestions.concat(page.questions);
+        }
+      }
+    } else if (Array.isArray(surveyConfig?.questions)) {
+      allQuestions = surveyConfig.questions;
+    }
+
+    if (allQuestions.length) {
+      // Delete existing questions and options to replace with updated ones
+      await db.sequelize.query('DELETE FROM survey_question_options WHERE question_id IN (SELECT question_id FROM survey_questions WHERE survey_id = :surveyId)', {
+        replacements: { surveyId },
+        transaction,
+      });
+      await db.sequelize.query('DELETE FROM survey_questions WHERE survey_id = :surveyId', {
+        replacements: { surveyId },
+        transaction,
+      });
+
+      // Re-insert updated questions and options
+      let nextQuestionId = await nextId('survey_questions', 'question_id', transaction);
+      let nextOptionId = await nextId('survey_question_options', 'question_option_id', transaction);
+
+      const clientToDbQuestionId = new Map();
+      for (let index = 0; index < allQuestions.length; index += 1) {
+        const dbQuestionId = nextQuestionId + index;
+        const clientId = allQuestions[index]?.id;
+        if (clientId != null && String(clientId).trim()) {
+          clientToDbQuestionId.set(String(clientId), dbQuestionId);
+        }
+        clientToDbQuestionId.set(String(index + 1), dbQuestionId);
+      }
+
+      for (let index = 0; index < allQuestions.length; index += 1) {
+        const question = allQuestions[index];
+        const questionId = nextQuestionId;
+        nextQuestionId += 1;
+
+        const rawDisplayLogic = normalizeDisplayLogic(question?.displayLogic);
+        const sourceKey = String(rawDisplayLogic.sourceQuestionId || '').trim();
+        const mappedSourceId = sourceKey ? clientToDbQuestionId.get(sourceKey) : null;
+        const mappedDisplayLogic = {
+          ...rawDisplayLogic,
+          sourceQuestionId: mappedSourceId ? String(mappedSourceId) : '',
+        };
+        if (!mappedDisplayLogic.sourceQuestionId) {
+          mappedDisplayLogic.enabled = false;
+        }
+
+        const rawSkipLogic = normalizeSkipLogic(question?.skipLogic, clientToDbQuestionId);
+        const mappedSkipLogic = {
+          ...rawSkipLogic,
+        };
+        if (!mappedSkipLogic.sourceQuestionId) {
+          mappedSkipLogic.enabled = false;
+        }
+
+        const questionConfig = {
+          answerType: String(question?.type || 'short_text').toLowerCase(),
+          displayLogic: mappedDisplayLogic,
+          skipLogic: mappedSkipLogic,
+          scaleMin: Number(question?.scaleMin || 1),
+          scaleMax: Number(question?.scaleMax || 5),
+          fileName: question?.fileName || '',
+          min: question?.min != null ? Number(question.min) : null,
+          max: question?.max != null ? Number(question.max) : null,
+          rows: Array.isArray(question?.rows) ? question.rows : [],
+          columns: Array.isArray(question?.columns) ? question.columns : [],
+          selectionRules: normalizeSelectionRules(question?.selectionRules, {
+            maxPrimary: question?.type === 'priority_select' ? 3 : 2,
+            maxSecondary: question?.type === 'multi_level_selection' ? 2 : 0,
+            preventDuplicate: ['priority_select', 'multi_level_selection'].includes(String(question?.type || '').toLowerCase()),
+          }),
+          maxRank: Number(question?.maxRank || (question?.type === 'priority_select' ? 3 : 0)) || 0,
+        };
+
+        await db.sequelize.query(
+          `INSERT INTO survey_questions(question_id, survey_id, question_type, question_text, is_required, sort_order, config, created_at, updated_at)
+  VALUES(:questionId, :surveyId, :questionType, :questionText, :isRequired, :sortOrder, :config, NOW(), NOW())`,
+          {
+            replacements: {
+              questionId,
+              surveyId,
+              questionType: mapQuestionType(question?.type),
+              questionText: String(question?.text || '').trim() || `Question ${index + 1} `,
+              isRequired: question?.required !== false,
+              sortOrder: index + 1,
+              config: JSON.stringify(questionConfig),
+            },
+            transaction,
+          }
+        );
+
+        const choices = Array.isArray(question?.options) ? question.options : [];
+        if (choices.length && ['single_choice', 'multiple_choice', 'dropdown', 'limited_dropdown', 'priority_select', 'multi_level_selection'].includes(String(question?.type || '').toLowerCase())) {
+          for (let optionIndex = 0; optionIndex < choices.length; optionIndex += 1) {
+            const normalizedOption = normalizeChoiceOption(choices[optionIndex], optionIndex);
+            const optionText = normalizedOption.label;
+            if (!optionText) continue;
+
+            const optionId = nextOptionId;
+            nextOptionId += 1;
+
+            const meta = {
+              ...(normalizedOption.meta || {}),
+              limit: normalizedOption.limit,
+              selectedCount: normalizedOption.selectedCount,
+            };
+
+            await db.sequelize.query(
+              `INSERT INTO survey_question_options(question_option_id, question_id, option_text, value, sort_order, meta, created_at, updated_at)
+  VALUES(:optionId, :questionId, :optionText, :value, :sortOrder, :meta, NOW(), NOW())`,
+              {
+                replacements: {
+                  optionId,
+                  questionId,
+                  optionText,
+                  value: normalizedOption.value || optionText,
+                  sortOrder: optionIndex + 1,
+                  meta: JSON.stringify(meta),
+                },
+                transaction,
+              }
+            );
+          }
+        }
+      }
+    }
+
     const releaseId = await nextId('survey_releases', 'release_id', transaction);
     const releaseName = String(req.body?.release_name || `${surveyRows[0].title} Release`).trim();
     const opensAt = toDbDateOrNull(req.body?.opens_at || req.body?.startDate);
@@ -1029,8 +1347,8 @@ exports.publishSurvey = async (req, res) => {
     };
 
     await db.sequelize.query(
-      `INSERT INTO survey_releases (release_id, survey_id, name, phase, opens_at, closes_at, is_frozen, release_config, created_by, created_at, updated_at)
-       VALUES (:releaseId, :surveyId, :name, :phase, :opensAt, :closesAt, 0, :releaseConfig, :createdBy, NOW(), NOW())`,
+      `INSERT INTO survey_releases(release_id, survey_id, name, phase, opens_at, closes_at, is_frozen, release_config, created_by, created_at, updated_at)
+  VALUES(:releaseId, :surveyId, :name, :phase, :opensAt, :closesAt, 0, :releaseConfig, :createdBy, NOW(), NOW())`,
       {
         replacements: {
           releaseId,
@@ -1046,7 +1364,6 @@ exports.publishSurvey = async (req, res) => {
       }
     );
 
-    const surveyConfig = parseJsonSafe(surveyRows[0]?.config, {});
     const audienceGroupIds = Array.isArray(req.body?.audience_group_ids)
       ? await getActiveGroupIds(req.body.audience_group_ids, transaction)
       : await getActiveGroupIds(surveyConfig.targetGroupIds, transaction);
@@ -1055,8 +1372,8 @@ exports.publishSurvey = async (req, res) => {
       let nextAudienceId = await nextId('survey_release_audience', 'release_audience_id', transaction);
       for (const groupId of audienceGroupIds) {
         await db.sequelize.query(
-          `INSERT INTO survey_release_audience (release_audience_id, release_id, audience_type, ref_id, filter_expr, created_at, updated_at)
-           VALUES (:audienceId, :releaseId, 'GROUP', :groupId, :filterExpr, NOW(), NOW())`,
+          `INSERT INTO survey_release_audience(release_audience_id, release_id, audience_type, ref_id, filter_expr, created_at, updated_at)
+  VALUES(:audienceId, :releaseId, 'GROUP', :groupId, :filterExpr, NOW(), NOW())`,
           {
             replacements: {
               audienceId: nextAudienceId,
@@ -1168,24 +1485,24 @@ exports.getReleasesForSurvey = async (req, res) => {
 
     const [rows] = await db.sequelize.query(
       `SELECT
-        sr.release_id,
-        sr.name,
-        sr.phase,
-        sr.opens_at,
-        sr.closes_at,
-        sr.is_frozen,
-        sr.release_config,
-        sr.created_at,
-        sr.updated_at,
-        u.name AS created_by_name,
-        COUNT(DISTINCT sp.participation_id) AS total_participants,
+  sr.release_id,
+    sr.name,
+    sr.phase,
+    sr.opens_at,
+    sr.closes_at,
+    sr.is_frozen,
+    sr.release_config,
+    sr.created_at,
+    sr.updated_at,
+    u.name AS created_by_name,
+      COUNT(DISTINCT sp.participation_id) AS total_participants,
         COUNT(DISTINCT CASE WHEN sp.status = 'SUBMITTED' THEN sp.participation_id END) AS submitted_count
       FROM survey_releases sr
       LEFT JOIN users u ON u.user_id = sr.created_by
       LEFT JOIN survey_participation sp ON sp.release_id = sr.release_id
       WHERE sr.survey_id = :surveyId
       GROUP BY sr.release_id, sr.name, sr.phase, sr.opens_at, sr.closes_at,
-               sr.is_frozen, sr.release_config, sr.created_at, sr.updated_at, u.name
+    sr.is_frozen, sr.release_config, sr.created_at, sr.updated_at, u.name
       ORDER BY sr.created_at DESC`,
       { replacements: { surveyId } }
     );
@@ -1221,8 +1538,8 @@ exports.createRelease = async (req, res) => {
     const closesAt = toDbDateOrNull(req.body?.closes_at);
 
     await db.sequelize.query(
-      `INSERT INTO survey_releases (release_id, survey_id, name, phase, opens_at, closes_at, is_frozen, release_config, created_by, created_at, updated_at)
-       VALUES (:releaseId, :surveyId, :name, :phase, :opensAt, :closesAt, 0, :releaseConfig, :createdBy, NOW(), NOW())`,
+      `INSERT INTO survey_releases(release_id, survey_id, name, phase, opens_at, closes_at, is_frozen, release_config, created_by, created_at, updated_at)
+  VALUES(:releaseId, :surveyId, :name, :phase, :opensAt, :closesAt, 0, :releaseConfig, :createdBy, NOW(), NOW())`,
       {
         replacements: {
           releaseId,
@@ -1250,8 +1567,8 @@ exports.createRelease = async (req, res) => {
       let nextAudienceId = await nextId('survey_release_audience', 'release_audience_id', transaction);
       for (const groupId of audienceGroupIds) {
         await db.sequelize.query(
-          `INSERT INTO survey_release_audience (release_audience_id, release_id, audience_type, ref_id, filter_expr, created_at, updated_at)
-           VALUES (:audienceId, :releaseId, 'GROUP', :groupId, :filterExpr, NOW(), NOW())`,
+          `INSERT INTO survey_release_audience(release_audience_id, release_id, audience_type, ref_id, filter_expr, created_at, updated_at)
+  VALUES(:audienceId, :releaseId, 'GROUP', :groupId, :filterExpr, NOW(), NOW())`,
           {
             replacements: { audienceId: nextAudienceId, releaseId, groupId, filterExpr: JSON.stringify({}) },
             transaction,
@@ -1262,8 +1579,8 @@ exports.createRelease = async (req, res) => {
 
       for (const userId of audienceUserIds) {
         await db.sequelize.query(
-          `INSERT INTO survey_release_audience (release_audience_id, release_id, audience_type, ref_id, filter_expr, created_at, updated_at)
-           VALUES (:audienceId, :releaseId, 'USER', :userId, :filterExpr, NOW(), NOW())`,
+          `INSERT INTO survey_release_audience(release_audience_id, release_id, audience_type, ref_id, filter_expr, created_at, updated_at)
+  VALUES(:audienceId, :releaseId, 'USER', :userId, :filterExpr, NOW(), NOW())`,
           {
             replacements: { audienceId: nextAudienceId, releaseId, userId, filterExpr: JSON.stringify({}) },
             transaction,
@@ -1554,7 +1871,7 @@ exports.getSurveyReport = async (req, res) => {
       const [rows] = await db.sequelize.query(
         `SELECT question_option_id, question_id, option_text, value, sort_order
          FROM survey_question_options
-         WHERE question_id IN (:questionIds)
+         WHERE question_id IN(:questionIds)
          ORDER BY sort_order ASC, question_option_id ASC`,
         { replacements: { questionIds } }
       );
@@ -1563,14 +1880,14 @@ exports.getSurveyReport = async (req, res) => {
 
     const [answerRows] = await db.sequelize.query(
       `SELECT
-        sa.answer_id,
-        sa.question_id,
-        sa.value_json,
-        sp.participation_id,
-        sp.user_id,
-        sp.status AS participation_status,
-        sp.submitted_at,
-        u.name AS respondent_name,
+  sa.answer_id,
+    sa.question_id,
+    sa.value_json,
+    sp.participation_id,
+    sp.user_id,
+    sp.status AS participation_status,
+      sp.submitted_at,
+      u.name AS respondent_name,
         u.email AS respondent_email
       FROM survey_answers sa
       INNER JOIN survey_participation sp ON sp.participation_id = sa.participation_id
@@ -1583,12 +1900,12 @@ exports.getSurveyReport = async (req, res) => {
 
     const [participantRows] = await db.sequelize.query(
       `SELECT
-        sp.participation_id,
-        sp.user_id,
-        sp.status,
-        sp.submitted_at,
-        u.name,
-        u.email
+  sp.participation_id,
+    sp.user_id,
+    sp.status,
+    sp.submitted_at,
+    u.name,
+    u.email
       FROM survey_participation sp
       INNER JOIN survey_releases sr ON sr.release_id = sp.release_id
       LEFT JOIN users u ON u.user_id = sp.user_id
@@ -1601,7 +1918,7 @@ exports.getSurveyReport = async (req, res) => {
     for (const option of optionRows) {
       const key = Number(option.question_id);
       const existing = optionsByQuestion.get(key) || [];
-      existing.push(option.option_text);
+      existing.push(option);
       optionsByQuestion.set(key, existing);
     }
 
@@ -1635,15 +1952,25 @@ exports.getSurveyReport = async (req, res) => {
 
     const questions = (questionRows || []).map((question) => {
       const questionConfig = parseJsonSafe(question.config, {});
-      const options = optionsByQuestion.get(Number(question.question_id)) || [];
+      const options = (optionsByQuestion.get(Number(question.question_id)) || []).map((option, index) => {
+        const normalizedOption = normalizeChoiceOption(option, index);
+        return {
+          id: Number(option.question_option_id),
+          label: normalizedOption.label,
+          value: normalizedOption.value,
+          limit: normalizedOption.limit,
+          selectedCount: normalizedOption.selectedCount,
+          sortOrder: Number(option.sort_order || 0),
+        };
+      });
       const submissions = answersByQuestion.get(Number(question.question_id)) || [];
       const type = mapQuestionTypeToFrontend(question.question_type, questionConfig);
 
       let distribution = [];
       let average = null;
       let matrixAggregation = [];
-      if (type === 'single_choice' || type === 'multiple_choice') {
-        const counts = new Map(options.map((option) => [option, 0]));
+      if (type === 'single_choice' || type === 'multiple_choice' || type === 'dropdown' || type === 'limited_dropdown' || type === 'priority_select' || type === 'multi_level_selection') {
+        const counts = new Map(options.map((option) => [String(option.value || option.label), 0]));
         for (const submission of submissions) {
           const values = Array.isArray(submission.value) ? submission.value : [submission.value];
           for (const value of values.filter(Boolean)) {
@@ -1712,6 +2039,12 @@ exports.getSurveyReport = async (req, res) => {
         options,
         scaleMin: Number(questionConfig.scaleMin || 1),
         scaleMax: Number(questionConfig.scaleMax || 5),
+        selectionRules: normalizeSelectionRules(questionConfig.selectionRules, {
+          maxPrimary: questionConfig.maxPrimary || (type === 'priority_select' ? 3 : 0),
+          maxSecondary: questionConfig.maxSecondary || (type === 'multi_level_selection' ? 2 : 0),
+          preventDuplicate: ['priority_select', 'multi_level_selection'].includes(type),
+        }),
+        maxRank: Number(questionConfig.maxRank || (type === 'priority_select' ? 3 : 0)) || 0,
         displayLogic: normalizeDisplayLogic(questionConfig.displayLogic),
         submissionCount: submissions.length,
         distribution,
@@ -1870,7 +2203,7 @@ exports.exportSurveyResponses = async (req, res) => {
       'respondent_email',
       'status',
       'submitted_at',
-      ...snapshot.questions.map((question) => `Q${question.id}: ${question.text}`),
+      ...snapshot.questions.map((question) => `Q${question.id}: ${question.text} `),
       'group_answers_json',
     ];
 
@@ -1883,22 +2216,22 @@ exports.exportSurveyResponses = async (req, res) => {
         submitted_at: response.submitted_at ? new Date(response.submitted_at).toISOString() : '',
       };
       for (const question of snapshot.questions) {
-        base[`Q${question.id}: ${question.text}`] = answerValueToText(response.answerMap[String(question.id)]);
+        base[`Q${question.id}: ${question.text} `] = answerValueToText(response.answerMap[String(question.id)]);
       }
       base.group_answers_json = JSON.stringify(response.groupAnswers || {});
       return base;
     });
 
-    const filenameBase = `survey-${surveyId}-responses`;
+    const filenameBase = `survey - ${surveyId} -responses`;
     if (format === 'xlsx' || format === 'excel') {
       const xmlRows = [
-        `<Row>${headers.map((header) => `<Cell><Data ss:Type="String">${String(header).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</Data></Cell>`).join('')}</Row>`,
-        ...rows.map((row) => `<Row>${headers.map((header) => `<Cell><Data ss:Type="String">${String(row[header] ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')}</Data></Cell>`).join('')}</Row>`),
+        `< Row > ${headers.map((header) => `<Cell><Data ss:Type="String">${String(header).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</Data></Cell>`).join('')}</Row > `,
+        ...rows.map((row) => `< Row > ${headers.map((header) => `<Cell><Data ss:Type="String">${String(row[header] ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')}</Data></Cell>`).join('')}</Row > `),
       ].join('');
 
-      const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Responses"><Table>${xmlRows}</Table></Worksheet></Workbook>`;
+      const workbook = `<? xml version = "1.0" ?> <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Responses"><Table>${xmlRows}</Table></Worksheet></Workbook>`;
       res.setHeader('Content-Type', 'application/vnd.ms-excel');
-      res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.xls"`);
+      res.setHeader('Content-Disposition', `attachment; filename = "${filenameBase}.xls"`);
       return res.send(workbook);
     }
 
@@ -1908,10 +2241,227 @@ exports.exportSurveyResponses = async (req, res) => {
     ].join('\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename = "${filenameBase}.csv"`);
     return res.send(csv);
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Failed to export survey responses' });
+  }
+};
+
+exports.runPriorityAllocation = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
+
+  try {
+    const surveyId = Number(req.params.id);
+    if (!(await ensureSurveyManageAccess(req, surveyId, res, transaction))) {
+      return;
+    }
+
+    const [surveyRows] = await db.sequelize.query(
+      'SELECT survey_id, title FROM surveys WHERE survey_id = :surveyId LIMIT 1',
+      { replacements: { surveyId }, transaction }
+    );
+    if (!surveyRows || !surveyRows[0]) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Survey not found' });
+    }
+
+    const requestedQuestionId = Number(req.body?.questionId);
+    const [questionRows] = await db.sequelize.query(
+      `SELECT question_id, config
+       FROM survey_questions
+       WHERE survey_id = :surveyId
+       ORDER BY sort_order ASC, question_id ASC`,
+      { replacements: { surveyId }, transaction }
+    );
+
+    const priorityQuestion = (questionRows || []).find((row) => {
+      if (requestedQuestionId && Number(row.question_id) !== requestedQuestionId) return false;
+      const cfg = parseJsonSafe(row.config, {});
+      const answerType = String(cfg.answerType || '').toLowerCase();
+      return answerType === 'priority_select';
+    });
+
+    if (!priorityQuestion) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'No priority_select question found for allocation' });
+    }
+
+    const questionId = Number(priorityQuestion.question_id);
+
+    const [optionRows] = await db.sequelize.query(
+      `SELECT question_option_id, option_text, value, meta
+       FROM survey_question_options
+       WHERE question_id = :questionId
+       ORDER BY sort_order ASC, question_option_id ASC`,
+      { replacements: { questionId }, transaction }
+    );
+
+    if (!optionRows || !optionRows.length) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Priority question has no options configured' });
+    }
+
+    const optionStateByValue = new Map();
+    for (const option of optionRows) {
+      const normalizedOption = normalizeChoiceOption(option);
+      const key = String(normalizedOption.value || normalizedOption.label).trim().toLowerCase();
+      optionStateByValue.set(key, {
+        option,
+        label: normalizedOption.label,
+        value: normalizedOption.value,
+        limit: normalizedOption.limit,
+        selectedCount: normalizedOption.selectedCount,
+      });
+    }
+
+    const [participantRows] = await db.sequelize.query(
+      `SELECT sp.participation_id, sp.user_id, sp.meta, u.score
+       FROM survey_participation sp
+       INNER JOIN survey_releases sr ON sr.release_id = sp.release_id
+       LEFT JOIN users u ON u.user_id = sp.user_id
+       WHERE sr.survey_id = :surveyId
+         AND sp.status = 'SUBMITTED'`,
+      { replacements: { surveyId }, transaction }
+    );
+
+    const participationIds = (participantRows || []).map((row) => Number(row.participation_id)).filter((id) => Number.isInteger(id) && id > 0);
+    if (!participationIds.length) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'No submitted participants available for allocation' });
+    }
+
+    const [answerRows] = await db.sequelize.query(
+      `SELECT participation_id, value_json
+       FROM survey_answers
+       WHERE question_id = :questionId
+         AND participation_id IN (:participationIds)`,
+      { replacements: { questionId, participationIds }, transaction }
+    );
+
+    const answerByParticipation = new Map();
+    for (const row of answerRows || []) {
+      answerByParticipation.set(Number(row.participation_id), parseAnswerValue(row.value_json));
+    }
+
+    const candidates = (participantRows || [])
+      .map((row) => ({
+        participationId: Number(row.participation_id),
+        userId: Number(row.user_id),
+        score: Number(row.score || 0),
+        choices: Array.isArray(answerByParticipation.get(Number(row.participation_id)))
+          ? answerByParticipation.get(Number(row.participation_id)).map((entry) => String(entry).trim()).filter(Boolean)
+          : [],
+      }))
+      .filter((entry) => entry.choices.length > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.participationId - b.participationId;
+      });
+
+    const assignments = [];
+    const incrementByOptionId = new Map();
+
+    for (const candidate of candidates) {
+      let assigned = null;
+
+      for (const rawChoice of candidate.choices) {
+        const key = String(rawChoice).trim().toLowerCase();
+        const optionState = optionStateByValue.get(key)
+          || Array.from(optionStateByValue.values()).find((entry) => String(entry.label || '').trim().toLowerCase() === key);
+        if (!optionState) continue;
+
+        const limit = optionState.limit;
+        const remaining = limit == null ? Number.POSITIVE_INFINITY : Math.max(0, limit - optionState.selectedCount);
+        if (remaining <= 0) continue;
+
+        optionState.selectedCount += 1;
+        assigned = {
+          participationId: candidate.participationId,
+          userId: candidate.userId,
+          score: candidate.score,
+          optionId: Number(optionState.option.question_option_id),
+          optionLabel: optionState.label,
+          optionValue: optionState.value,
+        };
+        incrementByOptionId.set(assigned.optionId, (incrementByOptionId.get(assigned.optionId) || 0) + 1);
+        break;
+      }
+
+      assignments.push(assigned || {
+        participationId: candidate.participationId,
+        userId: candidate.userId,
+        score: candidate.score,
+        optionId: null,
+        optionLabel: null,
+        optionValue: null,
+      });
+    }
+
+    for (const option of optionRows) {
+      const normalizedOption = normalizeChoiceOption(option);
+      const optionId = Number(option.question_option_id);
+      const increment = incrementByOptionId.get(optionId) || 0;
+      if (!increment) continue;
+
+      const nextMeta = {
+        ...parseMetaObject(option.meta, {}),
+        limit: normalizedOption.limit,
+        selectedCount: normalizedOption.selectedCount + increment,
+      };
+
+      await db.sequelize.query(
+        `UPDATE survey_question_options
+         SET meta = :meta, updated_at = NOW()
+         WHERE question_option_id = :optionId`,
+        {
+          replacements: {
+            optionId,
+            meta: JSON.stringify(nextMeta),
+          },
+          transaction,
+        }
+      );
+    }
+
+    for (const assignment of assignments) {
+      if (!assignment || !assignment.participationId) continue;
+      const [metaRows] = await db.sequelize.query(
+        'SELECT meta FROM survey_participation WHERE participation_id = :participationId LIMIT 1',
+        { replacements: { participationId: assignment.participationId }, transaction }
+      );
+      const currentMeta = metaRows && metaRows[0] ? parseJsonSafe(metaRows[0].meta, {}) : {};
+      currentMeta.priorityAllocation = {
+        question_id: questionId,
+        option_id: assignment.optionId,
+        option_label: assignment.optionLabel,
+        option_value: assignment.optionValue,
+        allocated_at: new Date().toISOString(),
+      };
+
+      await db.sequelize.query(
+        'UPDATE survey_participation SET meta = :meta WHERE participation_id = :participationId',
+        {
+          replacements: {
+            participationId: assignment.participationId,
+            meta: JSON.stringify(currentMeta),
+          },
+          transaction,
+        }
+      );
+    }
+
+    await transaction.commit();
+    return res.json({
+      survey_id: surveyId,
+      question_id: questionId,
+      total_candidates: candidates.length,
+      total_assigned: assignments.filter((entry) => entry.optionId != null).length,
+      assignments,
+    });
+  } catch (err) {
+    await transaction.rollback();
+    return res.status(500).json({ error: err.message || 'Failed to run priority allocation' });
   }
 };
 
@@ -1949,6 +2499,23 @@ exports.submitSurvey = async (req, res) => {
       return res.status(403).json({ error: 'Survey is not open for submission' });
     }
 
+    const [userRows] = await db.sequelize.query(
+      'SELECT user_id, attributes FROM users WHERE user_id = :userId LIMIT 1',
+      { replacements: { userId: req.userId }, transaction }
+    );
+    const currentUser = userRows && userRows[0] ? userRows[0] : null;
+    const userAttributes = parseJsonSafe(currentUser?.attributes, {});
+    const isCoreMember = Boolean(
+      userAttributes.isCoreMember
+      || userAttributes.is_core_member
+      || currentUser?.is_core_member
+      || currentUser?.isCoreMember
+    );
+    if (isCoreMember) {
+      await transaction.rollback();
+      return res.status(403).json({ error: 'Core committee members should not apply again' });
+    }
+
     const surveyConfig = parseJsonSafe(survey.config, {});
     if (surveyConfig.otpRequired) {
       const submittedOtp = String(req.body?.otp || '').trim();
@@ -1984,13 +2551,13 @@ exports.submitSurvey = async (req, res) => {
       if (memberArray.length < minCount) {
         await transaction.rollback();
         return res.status(400).json({
-          error: `${group.label} requires at least ${minCount} member(s). You have ${memberArray.length}.`,
+          error: `${group.label} requires at least ${minCount} member(s).You have ${memberArray.length}.`,
         });
       }
       if (memberArray.length > maxCount) {
         await transaction.rollback();
         return res.status(400).json({
-          error: `${group.label} allows at most ${maxCount} member(s). You have ${memberArray.length}.`,
+          error: `${group.label} allows at most ${maxCount} member(s).You have ${memberArray.length}.`,
         });
       }
 
@@ -2029,7 +2596,7 @@ exports.submitSurvey = async (req, res) => {
     }
 
     const [participationRows] = await db.sequelize.query(
-      `SELECT participation_id
+      `SELECT participation_id, status
        FROM survey_participation
        WHERE release_id = :releaseId AND user_id = :userId
        ORDER BY created_at DESC
@@ -2041,6 +2608,12 @@ exports.submitSurvey = async (req, res) => {
     );
 
     let participationId = participationRows && participationRows[0] ? Number(participationRows[0].participation_id) : null;
+    const existingParticipationStatus = participationRows && participationRows[0] ? String(participationRows[0].status || '').toUpperCase() : '';
+
+    if (participationId && existingParticipationStatus === 'SUBMITTED') {
+      await transaction.rollback();
+      return res.status(409).json({ error: 'You have already submitted this survey' });
+    }
 
     const maxResponses = surveyConfig.maxResponses == null ? null : Number(surveyConfig.maxResponses);
     if (!participationId && Number.isFinite(maxResponses) && maxResponses > 0) {
@@ -2059,6 +2632,114 @@ exports.submitSurvey = async (req, res) => {
       }
     }
 
+    const groupAnswers = {};
+    const questionAnswers = [];
+
+    for (const answer of answers) {
+      const questionId = Number(answer.question_id);
+      if (Number.isInteger(questionId) && questionId > 0) {
+        questionAnswers.push(answer);
+      } else {
+        const groupId = String(answer.question_id || '');
+        if (groupId) {
+          groupAnswers[groupId] = answer.value;
+        }
+      }
+    }
+
+    const [questionRows] = await db.sequelize.query(
+      `SELECT question_id, question_type, config
+       FROM survey_questions
+       WHERE survey_id = :surveyId
+       ORDER BY sort_order ASC, question_id ASC`,
+      { replacements: { surveyId }, transaction }
+    );
+
+    const questionConfigById = new Map();
+    const questionTypeById = new Map();
+    for (const row of questionRows || []) {
+      const questionId = Number(row.question_id);
+      const questionConfig = parseJsonSafe(row.config, {});
+      questionConfigById.set(questionId, questionConfig);
+      questionTypeById.set(questionId, mapQuestionTypeToFrontend(row.question_type, questionConfig));
+    }
+
+    const questionIdsForOptions = Array.from(questionConfigById.keys());
+    let optionRows = [];
+    if (questionIdsForOptions.length) {
+      const [rows] = await db.sequelize.query(
+        `SELECT question_option_id, question_id, option_text, value, sort_order, meta
+         FROM survey_question_options
+         WHERE question_id IN(:questionIds)
+         ORDER BY sort_order ASC, question_option_id ASC`,
+        { replacements: { questionIds: questionIdsForOptions }, transaction }
+      );
+      optionRows = rows || [];
+    }
+
+    const optionsByQuestion = new Map();
+    for (const option of optionRows || []) {
+      const questionId = Number(option.question_id);
+      const existing = optionsByQuestion.get(questionId) || [];
+      existing.push(option);
+      optionsByQuestion.set(questionId, existing);
+    }
+
+    const optionUpdatePlan = [];
+    for (const answer of questionAnswers) {
+      const questionId = Number(answer.question_id);
+      const questionType = questionTypeById.get(questionId);
+      if (!isChoiceQuestionType(questionType, questionConfigById.get(questionId))) {
+        continue;
+      }
+
+      const selectedValues = extractSelectionValues(questionType, answer.value);
+      const uniqueValues = Array.from(new Set(selectedValues.map((value) => String(value).trim()).filter(Boolean)));
+      const questionConfig = questionConfigById.get(questionId) || {};
+      const selectionRules = normalizeSelectionRules(questionConfig.selectionRules, {
+        maxPrimary: questionConfig.maxPrimary || (questionType === 'priority_select' ? 3 : 0),
+        maxSecondary: questionConfig.maxSecondary || (questionType === 'multi_level_selection' ? 2 : 0),
+        preventDuplicate: ['priority_select', 'multi_level_selection'].includes(questionType),
+      });
+
+      if (selectionRules.preventDuplicate && uniqueValues.length !== selectedValues.length) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Duplicate selections are not allowed for this question' });
+      }
+
+      const availableOptions = optionsByQuestion.get(questionId) || [];
+      for (const selectedValue of uniqueValues) {
+        const option = findMatchingOption(availableOptions, selectedValue);
+        if (!option) {
+          await transaction.rollback();
+          return res.status(400).json({ error: `Invalid option selected for question ${questionId}` });
+        }
+
+        const meta = parseMetaObject(option.meta, {});
+        const limit = meta.limit == null || meta.limit === '' ? null : Math.max(0, Number(meta.limit) || 0);
+        const selectedCount = Math.max(0, Number(meta.selectedCount || meta.selected_count || 0));
+
+        if (limit === 0) {
+          await transaction.rollback();
+          return res.status(409).json({ error: `Option ${option.option_text} is no longer available` });
+        }
+
+        if (limit != null && selectedCount >= limit) {
+          await transaction.rollback();
+          return res.status(409).json({ error: `Option ${option.option_text} is full` });
+        }
+
+        optionUpdatePlan.push({
+          questionId,
+          selectedValue,
+          optionId: Number(option.question_option_id),
+          currentCount: selectedCount,
+          limit,
+          meta,
+        });
+      }
+    }
+
     if (!participationId) {
       const reachedQuota = await findReachedCategoryQuota({
         surveyId,
@@ -2070,7 +2751,7 @@ exports.submitSurvey = async (req, res) => {
       if (reachedQuota) {
         await transaction.rollback();
         return res.status(409).json({
-          error: `Response limit reached for your category (${reachedQuota.label})`,
+          error: `Response limit reached for your category(${reachedQuota.label})`,
           quota: reachedQuota,
         });
       }
@@ -2079,8 +2760,8 @@ exports.submitSurvey = async (req, res) => {
     if (!participationId) {
       participationId = await nextId('survey_participation', 'participation_id', transaction);
       await db.sequelize.query(
-        `INSERT INTO survey_participation (participation_id, release_id, user_id, status, created_at, updated_at, started_at, meta)
-         VALUES (:participationId, :releaseId, :userId, 'STARTED', NOW(), NOW(), NOW(), :meta)`,
+        `INSERT INTO survey_participation(participation_id, release_id, user_id, status, created_at, updated_at, started_at, meta)
+  VALUES(:participationId, :releaseId, :userId, 'STARTED', NOW(), NOW(), NOW(), :meta)`,
         {
           replacements: {
             participationId,
@@ -2098,20 +2779,28 @@ exports.submitSurvey = async (req, res) => {
       { replacements: { participationId }, transaction }
     );
 
-    // Separate group answers from question answers
-    const groupAnswers = {};
-    const questionAnswers = [];
+    for (const plan of optionUpdatePlan) {
+      const nextMeta = {
+        ...plan.meta,
+        selectedCount: plan.currentCount + 1,
+      };
 
-    for (const answer of answers) {
-      const questionId = Number(answer.question_id);
-      if (Number.isInteger(questionId) && questionId > 0) {
-        questionAnswers.push(answer);
-      } else {
-        // This is a group answer (non-numeric ID)
-        const groupId = String(answer.question_id || '');
-        if (groupId) {
-          groupAnswers[groupId] = answer.value;
+      const [updateResult] = await db.sequelize.query(
+        `UPDATE survey_question_options
+         SET meta = :meta, updated_at = NOW()
+         WHERE question_option_id = :optionId`,
+        {
+          replacements: {
+            optionId: plan.optionId,
+            meta: JSON.stringify(nextMeta),
+          },
+          transaction,
         }
+      );
+
+      if (!updateResult || updateResult.affectedRows === 0) {
+        await transaction.rollback();
+        return res.status(409).json({ error: `Unable to reserve seat for option ${plan.selectedValue}` });
       }
     }
 
@@ -2121,8 +2810,8 @@ exports.submitSurvey = async (req, res) => {
       const questionId = Number(answer.question_id);
 
       await db.sequelize.query(
-        `INSERT INTO survey_answers (answer_id, participation_id, question_id, value_json, created_at, updated_at)
-         VALUES (:answerId, :participationId, :questionId, :valueJson, NOW(), NOW())`,
+        `INSERT INTO survey_answers(answer_id, participation_id, question_id, value_json, created_at, updated_at)
+  VALUES(:answerId, :participationId, :questionId, :valueJson, NOW(), NOW())`,
         {
           replacements: {
             answerId: nextAnswerId,
@@ -2186,8 +2875,8 @@ exports.submitSurvey = async (req, res) => {
     } else {
       const legacyParticipantId = await nextId('survey_participants', 'participant_id', transaction);
       await db.sequelize.query(
-        `INSERT INTO survey_participants (participant_id, survey_id, user_id, external_ref, status, invited_at, completed_at, meta, created_at, updated_at)
-         VALUES (:participantId, :surveyId, :userId, NULL, 'COMPLETED', NOW(), NOW(), :meta, NOW(), NOW())`,
+        `INSERT INTO survey_participants(participant_id, survey_id, user_id, external_ref, status, invited_at, completed_at, meta, created_at, updated_at)
+  VALUES(:participantId, :surveyId, :userId, NULL, 'COMPLETED', NOW(), NOW(), :meta, NOW(), NOW())`,
         {
           replacements: {
             participantId: legacyParticipantId,
@@ -2207,3 +2896,5 @@ exports.submitSurvey = async (req, res) => {
     return res.status(500).json({ error: err.message || 'Failed to submit survey' });
   }
 };
+
+
