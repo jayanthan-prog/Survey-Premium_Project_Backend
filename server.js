@@ -7,8 +7,8 @@ const { startDeadlineReminderScheduler } = require('./src/utils/deadlineReminder
 // Allow overriding the host/port via HOST and PORT env vars. Default HOST = 0.0.0.0
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const url = new URL(BASE_URL);
-const PORT = Number(process.env.PORT || url.port) || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+const PORT = Number(process.env.PORT || url.port) || 4000;
+const HOST = '10.150.20.138';
 
 // Small cyber-style banner
 function banner() {

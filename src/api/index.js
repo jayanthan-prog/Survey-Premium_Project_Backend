@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
+const serverMeta = require('../serverMeta');
 
 // Swagger UI
 const swaggerUi = require('swagger-ui-express');
@@ -23,6 +24,7 @@ const defaultCorsOrigins = [
 	'http://localhost:3000',
 	'http://localhost:4000',
 	'http://10.150.20.138:4000',
+	'https://survey.bitsathy.ac.in',
 ];
 
 const allowedOrigins = new Set([...defaultCorsOrigins, ...configuredCorsOrigins]);
