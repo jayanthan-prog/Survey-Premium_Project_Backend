@@ -75,9 +75,13 @@ exports.getUser = async (req, res, next) => {
 exports.updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, email } = req.body;
+    const { name } = req.body;
     const User = db.User;
     if (!User) return res.status(500).json({ error: 'User model not found' });
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'email')) {
+      return res.status(400).json({ error: 'Email cannot be changed from this endpoint' });
+    }
 
     const user = await User.findByPk(id);
     if (!user) {
@@ -86,7 +90,6 @@ exports.updateUser = async (req, res, next) => {
 
     // Update fields if provided
     if (name !== undefined) user.name = name;
-    if (email !== undefined) user.email = email;
 
     await user.save();
 

@@ -276,6 +276,10 @@ exports.createUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
   try {
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'email')) {
+      return res.status(400).json({ error: 'Email cannot be changed from this endpoint' });
+    }
+
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
     await user.update(req.body);

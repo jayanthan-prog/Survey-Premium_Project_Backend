@@ -413,10 +413,21 @@ exports.me = async (req, res, next) => {
 // PATCH /api/auth/me
 exports.updateMe = async (req, res, next) => {
   try {
+    const roles = Array.isArray(req.userRoles) && req.userRoles.length
+      ? req.userRoles
+      : await resolveUserRoles(req.userId);
+    if (!roles.includes('ADMIN')) {
+      return res.status(403).json({ error: 'Only admins can update profile details' });
+    }
+
     const user = await User.findByPk(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const allowedFields = ['name', 'email', 'phone', 'department'];
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'email')) {
+      return res.status(400).json({ error: 'Email cannot be changed from profile settings' });
+    }
+
+    const allowedFields = ['name', 'phone', 'department'];
     const updates = {};
     for (const key of allowedFields) {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
@@ -426,14 +437,14 @@ exports.updateMe = async (req, res, next) => {
 
     await user.update(updates);
 
-    const roles = Array.isArray(req.userRoles) && req.userRoles.length
+    const nextRoles = Array.isArray(req.userRoles) && req.userRoles.length
       ? req.userRoles
       : await resolveUserRoles(req.userId);
-    const primaryRole = getPrimaryRole(roles);
+    const primaryRole = getPrimaryRole(nextRoles);
 
     return res.json({
       message: 'Profile updated successfully',
-      user: getSanitizedUser(user, primaryRole, roles),
+      user: getSanitizedUser(user, primaryRole, nextRoles),
     });
   } catch (err) {
     next(err);

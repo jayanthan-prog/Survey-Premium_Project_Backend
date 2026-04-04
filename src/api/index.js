@@ -76,24 +76,9 @@ const optionQuotaBucketRoutes = require('../routes/optionQuotaBucketRoutes');
 const surveySessionRoutes = require('../routes/surveySessionRoutes');
 const notificationRoutes = require('../routes/notificationRoutes');
 const allocationTaskRoutes = require('../routes/allocationTaskRoutes');
+const actionPlanRoutes = require('../routes/actionPlanRoutes');
+const actionPlanItemRoutes = require('../routes/actionPlanItemRoutes');
 const adminRoutes = require('../routes/adminRoutes');
-const adminUiRoutes = require('../routes/adminUiRoutes');
-
-// Auto-load any generated admin route files so persisted generated APIs are mounted at startup.
-const fs = require('fs');
-const path = require('path');
-try {
-	const routesDir = path.join(__dirname, '..', 'routes');
-	if (fs.existsSync(routesDir)) {
-		fs.readdirSync(routesDir).filter(f => f.startsWith('generated-') && f.endsWith('.js')).forEach(f => {
-			try {
-				// mount under /admin so files with paths like /generated/<model> work
-				app.use('/admin', require('../routes/' + f));
-				console.log('Mounted generated admin route:', f);
-			} catch (e) { /* ignore load errors at startup */ }
-		});
-	}
-} catch (e) { /* ignore */ }
 
 // Swagger UI route (API docs)
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
@@ -146,12 +131,11 @@ app.use('/api/option-quota-buckets', requireAnyRole(['ADMIN', 'APPROVER']), opti
 app.use('/api/survey-sessions', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), surveySessionRoutes);
 app.use('/api/notifications', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), notificationRoutes);
 app.use('/api/allocations', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), allocationTaskRoutes);
+app.use('/api/action-plans', requireAnyRole(['ADMIN', 'APPROVER']), actionPlanRoutes);
+app.use('/api/action-plan-items', requireAnyRole(['ADMIN', 'APPROVER']), actionPlanItemRoutes);
 
 // Admin dashboard routes (protected by ADMIN_API_KEY)
 app.use('/api/admin', adminRoutes);
-
-// Admin UI (login page, dashboard). Mount at /admin
-app.use('/admin', adminUiRoutes);
 
 
 app.get('/', (req, res) => res.send('Survey Premium Backend API running (modular app)!'));

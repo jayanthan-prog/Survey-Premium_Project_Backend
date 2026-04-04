@@ -2665,17 +2665,27 @@ exports.submitSurvey = async (req, res) => {
     }
 
     const [releaseRows] = await db.sequelize.query(
-      `SELECT release_id
+      `SELECT release_id, closes_at, is_frozen
        FROM survey_releases
        WHERE survey_id = :surveyId
        ORDER BY created_at DESC
        LIMIT 1`,
       { replacements: { surveyId }, transaction }
     );
-    const releaseId = releaseRows && releaseRows[0] ? Number(releaseRows[0].release_id) : null;
+    const latestRelease = releaseRows && releaseRows[0] ? releaseRows[0] : null;
+    const releaseId = latestRelease ? Number(latestRelease.release_id) : null;
     if (!releaseId) {
       await transaction.rollback();
       return res.status(400).json({ error: 'Survey has no published release' });
+    }
+
+    const isReleaseFrozen = Boolean(latestRelease.is_frozen);
+    const closesAt = latestRelease.closes_at ? new Date(latestRelease.closes_at) : null;
+    const isDeadlinePassed = Boolean(closesAt && !Number.isNaN(closesAt.getTime()) && closesAt.getTime() <= Date.now());
+
+    if (isReleaseFrozen || isDeadlinePassed) {
+      await transaction.rollback();
+      return res.status(403).json({ error: 'Survey closed' });
     }
 
     const [participationRows] = await db.sequelize.query(
