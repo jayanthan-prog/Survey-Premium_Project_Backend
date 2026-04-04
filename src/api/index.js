@@ -134,7 +134,9 @@ app.use('/api/survey-sessions', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), s
 app.use('/api/notifications', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), notificationRoutes);
 app.use('/api/allocations', requireAnyRole(['ADMIN', 'APPROVER', 'USER']), allocationTaskRoutes);
 app.use('/api/action-plans', requireAnyRole(['ADMIN', 'APPROVER']), actionPlanRoutes);
+app.use('/api/action_plans', requireAnyRole(['ADMIN', 'APPROVER']), actionPlanRoutes);
 app.use('/api/action-plan-items', requireAnyRole(['ADMIN', 'APPROVER']), actionPlanItemRoutes);
+app.use('/api/action_plan_items', requireAnyRole(['ADMIN', 'APPROVER']), actionPlanItemRoutes);
 
 // Admin dashboard routes (protected by ADMIN_API_KEY)
 app.use('/api/admin', adminRoutes);

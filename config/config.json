@@ -1,32 +1,32 @@
 {
   "development": {
-    "username": "root",
-    "password": "mero5712",
-    "database": "survey_db",
-    "host": "localhost",
+    "username": "${DB_USER}",
+    "password": "${DB_PASSWORD}",
+    "database": "${DB_NAME}",
+    "host": "${DB_HOST}",
     "dialect": "mysql",
     "logging": false,
-    "migrations": "D:/survey/Backend/src/migrations",
-    "models": "D:/survey/Backend/src/models"
+    "migrations": "/var/www/Survey-Premium_Project_Backend/src/migrations",
+    "models": "/var/www/Survey-Premium_Project_Backend/src/models"
   },
   "test": {
-    "username": "root",
-    "password": "mero5712",
+    "username": "${DB_USER}",
+    "password": "${DB_PASSWORD}",
     "database": "survey_db_test",
-    "host": "localhost",
+    "host": "${DB_HOST}",
     "dialect": "mysql",
     "logging": false,
-    "migrations": "D:/survey/Backend/src/migrations",
-    "models": "D:/survey/Backend/src/models"
+    "migrations": "/var/www/Survey-Premium_Project_Backend/src/migrations",
+    "models": "/var/www/Survey-Premium_Project_Backend/src/models"
   },
   "production": {
-    "username": "root",
-    "password": "mero5712",
-    "database": "survey_db_prod",
-    "host": "localhost",
+    "username": "${DB_USER}",
+    "password": "${DB_PASSWORD}",
+    "database": "${DB_NAME}",
+    "host": "${DB_HOST}",
     "dialect": "mysql",
     "logging": false,
-    "migrations": "D:/survey/Backend/src/migrations",
-    "models": "D:/survey/Backend/src/models"
+    "migrations": "/var/www/Survey-Premium_Project_Backend/src/migrations",
+    "models": "/var/www/Survey-Premium_Project_Backend/src/models"
   }
 }
