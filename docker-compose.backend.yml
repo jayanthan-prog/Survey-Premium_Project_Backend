@@ -1,0 +1,45 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: survey-mysql
+    restart: unless-stopped
+    env_file:
+      - /opt/envs/.survey_backend.env
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - survey_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USER}", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - survey_net
+
+  backend:
+    container_name: survey-backend
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG:-v1.0.0}
+    env_file:
+      - /opt/envs/.survey_backend.env
+    environment:
+      DB_HOST: mysql
+      DB_DIALECT: mysql
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - /opt/uploads:/app/uploads
+    ports:
+      - "5001:5000"
+    restart: unless-stopped
+    networks:
+      - survey_net
+
+volumes:
+  survey_mysql_data:
+
+networks:
+  survey_net:
+    external: true
